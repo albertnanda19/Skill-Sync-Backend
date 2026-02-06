@@ -16,6 +16,7 @@ type JobSkillRequirement struct {
 
 type JobSkillRepository interface {
 	FindByJobID(ctx context.Context, jobID uuid.UUID) ([]JobSkillRequirement, error)
+	FindByJobIDs(ctx context.Context, jobIDs []uuid.UUID) (map[uuid.UUID][]JobSkillRequirement, error)
 }
 
 type PostgresJobSkillRepository struct {
@@ -47,6 +48,39 @@ func (r *PostgresJobSkillRepository) FindByJobID(ctx context.Context, jobID uuid
 			return nil, err
 		}
 		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *PostgresJobSkillRepository) FindByJobIDs(ctx context.Context, jobIDs []uuid.UUID) (map[uuid.UUID][]JobSkillRequirement, error) {
+	out := make(map[uuid.UUID][]JobSkillRequirement)
+	if len(jobIDs) == 0 {
+		return out, nil
+	}
+
+	rows, err := r.db.Query(ctx,
+		`SELECT js.job_id, js.skill_id, s.name, COALESCE(js.importance_weight, 0)
+		 FROM job_skills js
+		 JOIN skills s ON s.id = js.skill_id
+		 WHERE js.job_id = ANY($1)
+		 ORDER BY js.job_id ASC, s.name ASC`,
+		jobIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var jobID uuid.UUID
+		var it JobSkillRequirement
+		if err := rows.Scan(&jobID, &it.SkillID, &it.SkillName, &it.ImportanceWeight); err != nil {
+			return nil, err
+		}
+		out[jobID] = append(out[jobID], it)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

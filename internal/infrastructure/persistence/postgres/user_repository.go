@@ -3,95 +3,91 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
+	"skill-sync/internal/database"
 	"skill-sync/internal/domain/user"
 )
 
 type UserRepository struct {
-	db *PostgresDB
-
-	stmtCreate     *sql.Stmt
-	stmtGetByID    *sql.Stmt
-	stmtGetByEmail *sql.Stmt
+	db database.DB
 }
 
-func NewUserRepository(db *PostgresDB) (*UserRepository, error) {
-	r := &UserRepository{db: db}
+func NewUserRepository(db database.DB) *UserRepository {
+	return &UserRepository{db: db}
+}
 
-	var err error
-	r.stmtCreate, err = db.sqlDB().PrepareContext(
-		context.Background(),
+func (r *UserRepository) CreateUser(ctx context.Context, u user.User) error {
+	_, err := r.db.Exec(ctx,
 		`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`,
+		u.ID, u.Email, u.PasswordHash,
 	)
-	if err != nil {
-		_ = r.Close()
-		return nil, err
-	}
-
-	r.stmtGetByID, err = db.sqlDB().PrepareContext(
-		context.Background(),
-		`SELECT id, email, password_hash, created_at, updated_at FROM users WHERE id = $1`,
-	)
-	if err != nil {
-		_ = r.Close()
-		return nil, err
-	}
-
-	r.stmtGetByEmail, err = db.sqlDB().PrepareContext(
-		context.Background(),
-		`SELECT id, email, password_hash, created_at, updated_at FROM users WHERE email = $1`,
-	)
-	if err != nil {
-		_ = r.Close()
-		return nil, err
-	}
-
-	return r, nil
-}
-
-func (r *UserRepository) Close() error {
-	var firstErr error
-	closeStmt := func(s *sql.Stmt) {
-		if s == nil {
-			return
-		}
-		if err := s.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-
-	closeStmt(r.stmtCreate)
-	closeStmt(r.stmtGetByID)
-	closeStmt(r.stmtGetByEmail)
-
-	return firstErr
-}
-
-func (r *UserRepository) Create(ctx context.Context, u user.User) error {
-	_, err := r.stmtCreate.ExecContext(ctx, u.ID, u.Email, u.PasswordHash)
 	return err
 }
 
-func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (user.User, error) {
-	row := r.stmtGetByID.QueryRowContext(ctx, id)
-	return scanUser(row)
+func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (user.User, error) {
+	row := r.db.QueryRow(ctx,
+		`SELECT id, email, password_hash, created_at, updated_at FROM users WHERE id = $1`,
+		id,
+	)
+	return scanUserRow(row)
 }
 
-func (r *UserRepository) GetByEmail(ctx context.Context, email string) (user.User, error) {
-	row := r.stmtGetByEmail.QueryRowContext(ctx, email)
-	return scanUser(row)
+func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (user.User, error) {
+	row := r.db.QueryRow(ctx,
+		`SELECT id, email, password_hash, created_at, updated_at FROM users WHERE email = $1`,
+		email,
+	)
+	return scanUserRow(row)
 }
 
-type userRow interface {
-	Scan(dest ...any) error
+func (r *UserRepository) UpdateUser(ctx context.Context, u user.User) error {
+	rowsAffected, err := r.db.Exec(ctx,
+		`UPDATE users SET email = $1, password_hash = $2, updated_at = now() WHERE id = $3`,
+		u.Email, u.PasswordHash, u.ID,
+	)
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return user.ErrNotFound
+	}
+	return nil
 }
 
-func scanUser(row userRow) (user.User, error) {
+func (r *UserRepository) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	rowsAffected, err := r.db.Exec(ctx,
+		`DELETE FROM users WHERE id = $1`,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return user.ErrNotFound
+	}
+	return nil
+}
+
+func (r *UserRepository) ExistsByEmail(ctx context.Context, email string) (bool, error) {
+	var exists bool
+	row := r.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`,
+		email,
+	)
+	if err := row.Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func scanUserRow(row database.Row) (user.User, error) {
 	var u user.User
 	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt, &u.UpdatedAt); err != nil {
-		if err == sql.ErrNoRows {
+		if err == sql.ErrNoRows || errors.Is(err, pgx.ErrNoRows) {
 			return user.User{}, user.ErrNotFound
 		}
 		return user.User{}, err

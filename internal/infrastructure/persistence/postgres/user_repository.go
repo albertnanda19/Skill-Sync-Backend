@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/google/uuid"
+
 	"skill-sync/internal/domain/user"
 )
 
@@ -72,7 +74,7 @@ func (r *UserRepository) Create(ctx context.Context, u user.User) error {
 	return err
 }
 
-func (r *UserRepository) GetByID(ctx context.Context, id string) (user.User, error) {
+func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (user.User, error) {
 	row := r.stmtGetByID.QueryRowContext(ctx, id)
 	return scanUser(row)
 }

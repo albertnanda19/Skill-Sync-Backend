@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"skill-sync/internal/config"
 )
 
@@ -24,7 +26,7 @@ func Connect(cfg config.DatabaseConfig) (*PostgresDB, error) {
 		cfg.DBSSLMode,
 	)
 
-	db, err := sql.Open("postgres", dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -52,4 +54,8 @@ func (p *PostgresDB) sqlDB() *sql.DB {
 		return nil
 	}
 	return p.db
+}
+
+func (p *PostgresDB) SQLDB() *sql.DB {
+	return p.sqlDB()
 }

@@ -1,10 +1,13 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"skill-sync/internal/config"
+	"skill-sync/internal/database/migration"
 	"skill-sync/internal/delivery/http/middleware"
 	"skill-sync/internal/delivery/http/routes"
 
@@ -13,6 +16,7 @@ import (
 
 type App struct {
 	Fiber *fiber.App
+	C     *Container
 }
 
 func New(cfg config.Config) *App {
@@ -26,8 +30,23 @@ func New(cfg config.Config) *App {
 }
 
 func Bootstrap(cfg config.Config) (*App, func() error, error) {
+	c, err := NewContainer(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	r := migration.Runner{Dir: "migrations"}
+	if err := r.Run(ctx, c.DB.SQLDB()); err != nil {
+		_ = c.Close()
+		return nil, nil, err
+	}
+
 	app := New(cfg)
-	return app, func() error { return nil }, nil
+	app.C = c
+	return app, c.Close, nil
 }
 
 func registerGlobalMiddleware(app *fiber.App) {

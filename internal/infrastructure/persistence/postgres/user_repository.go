@@ -84,6 +84,45 @@ func (r *UserRepository) ExistsByEmail(ctx context.Context, email string) (bool,
 	return exists, nil
 }
 
+func (r *UserRepository) GetProfileByUserID(ctx context.Context, userID uuid.UUID) (user.Profile, error) {
+	row := r.db.QueryRow(ctx,
+		`SELECT id, user_id, full_name, experience_level, preferred_roles, created_at, updated_at FROM user_profiles WHERE user_id = $1`,
+		userID,
+	)
+
+	var p user.Profile
+	var roles []string
+	if err := row.Scan(&p.ID, &p.UserID, &p.FullName, &p.ExperienceLevel, &roles, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err == sql.ErrNoRows || errors.Is(err, pgx.ErrNoRows) {
+			return user.Profile{}, user.ErrNotFound
+		}
+		return user.Profile{}, err
+	}
+	p.PreferredRoles = roles
+	return p, nil
+}
+
+func (r *UserRepository) UpdateProfile(ctx context.Context, p user.Profile) error {
+	if p.UserID == nil {
+		return user.ErrNotFound
+	}
+
+	_, err := r.db.Exec(ctx,
+		`INSERT INTO user_profiles (id, user_id, full_name, experience_level, preferred_roles)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (user_id) DO UPDATE SET
+		  full_name = EXCLUDED.full_name,
+		  experience_level = EXCLUDED.experience_level,
+		  preferred_roles = EXCLUDED.preferred_roles,
+		  updated_at = now()`,
+		p.ID, *p.UserID, p.FullName, p.ExperienceLevel, p.PreferredRoles,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func scanUserRow(row database.Row) (user.User, error) {
 	var u user.User
 	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt, &u.UpdatedAt); err != nil {

@@ -14,7 +14,8 @@ COMMENT ON TABLE users IS 'Authentication and core user identity records.';
 CREATE TABLE user_profiles (
   id UUID PRIMARY KEY,
   user_id UUID UNIQUE REFERENCES users(id),
-  experience_level SMALLINT,
+  full_name TEXT,
+  experience_level TEXT,
   preferred_roles TEXT[],
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()

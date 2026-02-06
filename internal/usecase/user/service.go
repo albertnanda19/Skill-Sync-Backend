@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"skill-sync/internal/domain/user"
 
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -16,9 +16,19 @@ var (
 	ErrInternal     = errors.New("internal error")
 )
 
-type UpdateMeInput struct {
-	Email    *string
-	Password *string
+type UpdateProfileInput struct {
+	FullName        *string
+	ExperienceLevel *string
+	PreferredRoles  []string
+}
+
+type Profile struct {
+	ID              uuid.UUID
+	Email           string
+	FullName        *string
+	ExperienceLevel *string
+	PreferredRoles  []string
+	CreatedAt       time.Time
 }
 
 type Service struct {
@@ -29,76 +39,80 @@ func NewService(users user.Repository) *Service {
 	return &Service{users: users}
 }
 
-func (s *Service) GetMe(ctx context.Context, userID uuid.UUID) (user.User, error) {
+func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (Profile, error) {
 	usr, err := s.users.GetUserByID(ctx, userID)
 	if err != nil {
-		return user.User{}, ErrInternal
-	}
-	return sanitizeUser(usr), nil
-}
-
-func (s *Service) UpdateMe(ctx context.Context, userID uuid.UUID, in UpdateMeInput) (user.User, error) {
-	usr, err := s.users.GetUserByID(ctx, userID)
-	if err != nil {
-		return user.User{}, ErrInternal
-	}
-
-	if in.Email != nil {
-		email := normalizeEmail(*in.Email)
-		if email == "" {
-			return user.User{}, ErrInvalidInput
+		if errors.Is(err, user.ErrNotFound) {
+			return Profile{}, user.ErrNotFound
 		}
-		usr.Email = email
+		return Profile{}, ErrInternal
 	}
 
-	if in.Password != nil {
-		pw := strings.TrimSpace(*in.Password)
-		if !isValidPassword(pw) {
-			return user.User{}, ErrInvalidInput
-		}
-		hash, err := hashPassword(pw)
-		if err != nil {
-			return user.User{}, ErrInternal
-		}
-		usr.PasswordHash = hash
-	}
-
-	if err := s.users.UpdateUser(ctx, usr); err != nil {
-		return user.User{}, ErrInternal
-	}
-
-	updated, err := s.users.GetUserByID(ctx, userID)
+	p, err := s.users.GetProfileByUserID(ctx, userID)
 	if err != nil {
-		return user.User{}, ErrInternal
+		if errors.Is(err, user.ErrNotFound) {
+			return Profile{ID: usr.ID, Email: usr.Email, PreferredRoles: []string{}, CreatedAt: usr.CreatedAt}, nil
+		}
+		return Profile{}, ErrInternal
 	}
-	return sanitizeUser(updated), nil
+
+	return Profile{
+		ID:              usr.ID,
+		Email:           usr.Email,
+		FullName:        p.FullName,
+		ExperienceLevel: p.ExperienceLevel,
+		PreferredRoles:  p.PreferredRoles,
+		CreatedAt:       usr.CreatedAt,
+	}, nil
 }
 
-func normalizeEmail(email string) string {
-	email = strings.TrimSpace(email)
-	if email == "" {
-		return ""
-	}
-	return strings.ToLower(email)
-}
-
-func isValidPassword(pw string) bool {
-	pw = strings.TrimSpace(pw)
-	if len(pw) < 8 {
-		return false
-	}
-	return true
-}
-
-func sanitizeUser(u user.User) user.User {
-	u.PasswordHash = ""
-	return u
-}
-
-func hashPassword(pw string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
+func (s *Service) UpdateProfile(ctx context.Context, userID uuid.UUID, in UpdateProfileInput) (Profile, error) {
+	_, err := s.users.GetUserByID(ctx, userID)
 	if err != nil {
-		return "", ErrInternal
+		if errors.Is(err, user.ErrNotFound) {
+			return Profile{}, user.ErrNotFound
+		}
+		return Profile{}, ErrInternal
 	}
-	return string(hash), nil
+
+	existing, err := s.users.GetProfileByUserID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			existing = user.Profile{ID: uuid.New(), UserID: &userID, PreferredRoles: []string{}}
+		} else {
+			return Profile{}, ErrInternal
+		}
+	}
+
+	if in.FullName != nil {
+		v := strings.TrimSpace(*in.FullName)
+		if v != "" {
+			existing.FullName = &v
+		}
+	}
+	if in.ExperienceLevel != nil {
+		v := strings.TrimSpace(*in.ExperienceLevel)
+		if v != "" {
+			existing.ExperienceLevel = &v
+		}
+	}
+	if len(in.PreferredRoles) > 0 {
+		existing.PreferredRoles = in.PreferredRoles
+	}
+
+	if existing.UserID == nil {
+		existing.UserID = &userID
+	}
+	if existing.ID == uuid.Nil {
+		existing.ID = uuid.New()
+	}
+
+	if err := s.users.UpdateProfile(ctx, existing); err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			return Profile{}, user.ErrNotFound
+		}
+		return Profile{}, ErrInternal
+	}
+
+	return s.GetProfile(ctx, userID)
 }

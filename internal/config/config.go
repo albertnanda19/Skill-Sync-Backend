@@ -12,6 +12,7 @@ import (
 type Config struct {
 	App      AppConfig
 	Database DatabaseConfig
+	JWT      JWTConfig
 }
 
 type AppConfig struct {
@@ -38,6 +39,13 @@ type DatabaseConfig struct {
 	PoolHealthCheckPeriod time.Duration
 }
 
+type JWTConfig struct {
+	AccessSecret     string
+	RefreshSecret    string
+	AccessExpiresIn  time.Duration
+	RefreshExpiresIn time.Duration
+}
+
 var errMissingRequiredEnv = errors.New("missing required environment variables")
 
 func Load() (Config, error) {
@@ -55,6 +63,19 @@ func Load() (Config, error) {
 	}
 	opt := func(key string) string {
 		return strings.TrimSpace(os.Getenv(key))
+	}
+	reqDuration := func(key string) time.Duration {
+		raw := strings.TrimSpace(os.Getenv(key))
+		if raw == "" {
+			missing = append(missing, key)
+			return 0
+		}
+		d, err := time.ParseDuration(raw)
+		if err != nil || d <= 0 {
+			missing = append(missing, key)
+			return 0
+		}
+		return d
 	}
 
 	cfg.App = AppConfig{
@@ -79,6 +100,13 @@ func Load() (Config, error) {
 		PoolMaxConnLifetime:   optDuration("DB_POOL_MAX_CONN_LIFETIME"),
 		PoolMaxConnIdleTime:   optDuration("DB_POOL_MAX_CONN_IDLE_TIME"),
 		PoolHealthCheckPeriod: optDuration("DB_POOL_HEALTHCHECK_PERIOD"),
+	}
+
+	cfg.JWT = JWTConfig{
+		AccessSecret:     req("JWT_ACCESS_SECRET"),
+		RefreshSecret:    req("JWT_REFRESH_SECRET"),
+		AccessExpiresIn:  reqDuration("JWT_ACCESS_EXPIRES_IN"),
+		RefreshExpiresIn: reqDuration("JWT_REFRESH_EXPIRES_IN"),
 	}
 
 	if len(missing) > 0 {

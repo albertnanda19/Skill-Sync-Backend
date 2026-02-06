@@ -30,6 +30,8 @@ type DatabaseConfig struct {
 var errMissingRequiredEnv = errors.New("missing required environment variables")
 
 func Load() (Config, error) {
+	_ = loadDotEnvIfPresent(".env")
+
 	cfg := Config{}
 
 	var missing []string
@@ -64,4 +66,40 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func loadDotEnvIfPresent(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(b), "\n")
+	for _, raw := range lines {
+		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+
+		key := strings.TrimSpace(k)
+		if key == "" {
+			continue
+		}
+		if _, exists := os.LookupEnv(key); exists {
+			continue
+		}
+
+		val := strings.TrimSpace(v)
+		_ = os.Setenv(key, val)
+	}
+
+	return nil
 }

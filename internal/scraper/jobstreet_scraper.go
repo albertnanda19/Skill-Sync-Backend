@@ -3,6 +3,7 @@ package scraper
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -14,11 +15,24 @@ import (
 )
 
 type JobStreetScraper struct {
-	db database.DB
+	db          database.DB
+	baseURL     string
+	allowedHost string
 }
 
 func NewJobStreetScraper(db database.DB) *JobStreetScraper {
-	return &JobStreetScraper{db: db}
+	s := &JobStreetScraper{db: db, baseURL: "https://www.jobstreet.co.id"}
+	s.allowedHost = hostFromBaseURL(s.baseURL)
+	return s
+}
+
+func NewJobStreetScraperWithBaseURL(db database.DB, baseURL string) *JobStreetScraper {
+	s := &JobStreetScraper{db: db, baseURL: strings.TrimSpace(baseURL)}
+	if s.baseURL == "" {
+		s.baseURL = "https://www.jobstreet.co.id"
+	}
+	s.allowedHost = hostFromBaseURL(s.baseURL)
+	return s
 }
 
 type jobstreetListItem struct {
@@ -36,10 +50,10 @@ func (s *JobStreetScraper) Scrape(ctx context.Context, startURLTemplate string, 
 		pages = 1
 	}
 	if strings.TrimSpace(startURLTemplate) == "" {
-		startURLTemplate = "https://www.jobstreet.co.id/id/job-search/jobs?sort=createdAt&page=%d"
+		startURLTemplate = strings.TrimRight(s.baseURL, "/") + "/id/job-search/jobs?sort=createdAt&page=%d"
 	}
 
-	sourceID, err := ensureJobSource(ctx, s.db, "JobStreet", "https://www.jobstreet.co.id")
+	sourceID, err := ensureJobSource(ctx, s.db, "JobStreet", s.baseURL)
 	if err != nil {
 		return err
 	}
@@ -101,7 +115,7 @@ func (s *JobStreetScraper) Scrape(ctx context.Context, startURLTemplate string, 
 
 func (s *JobStreetScraper) scrapeListingPage(ctx context.Context, listURL string) ([]jobstreetListItem, error) {
 	c := colly.NewCollector(
-		colly.AllowedDomains("www.jobstreet.co.id", "jobstreet.co.id"),
+		colly.AllowedDomains(s.allowedHost),
 	)
 
 	_ = c.Limit(&colly.LimitRule{DomainGlob: "*jobstreet.co.id*", Parallelism: 2, RandomDelay: 750 * time.Millisecond, Delay: 400 * time.Millisecond})
@@ -176,7 +190,7 @@ type jobstreetDetail struct {
 
 func (s *JobStreetScraper) scrapeDetailPage(ctx context.Context, jobURL string) (jobstreetDetail, error) {
 	c := colly.NewCollector(
-		colly.AllowedDomains("www.jobstreet.co.id", "jobstreet.co.id"),
+		colly.AllowedDomains(s.allowedHost),
 	)
 	_ = c.Limit(&colly.LimitRule{DomainGlob: "*jobstreet.co.id*", Parallelism: 2, RandomDelay: 850 * time.Millisecond, Delay: 450 * time.Millisecond})
 
@@ -250,4 +264,20 @@ func httpHeaders() map[string]string {
 		"User-Agent":      "SkillSyncScraper/0.1",
 		"Accept-Language": "en-US,en;q=0.9,id;q=0.8",
 	}
+}
+
+func hostFromBaseURL(base string) string {
+	base = strings.TrimSpace(base)
+	u, err := url.Parse(base)
+	if err != nil {
+		return "www.jobstreet.co.id"
+	}
+	host := u.Host
+	if host == "" {
+		return "www.jobstreet.co.id"
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }

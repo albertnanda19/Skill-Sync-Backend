@@ -15,8 +15,10 @@ import (
 )
 
 type DevtoScraper struct {
-	db     database.DB
-	client *http.Client
+	db       database.DB
+	client   *http.Client
+	apiBase  string
+	siteBase string
 }
 
 func NewDevtoScraper(db database.DB) *DevtoScraper {
@@ -25,6 +27,8 @@ func NewDevtoScraper(db database.DB) *DevtoScraper {
 		client: &http.Client{
 			Timeout: 25 * time.Second,
 		},
+		apiBase:  "https://dev.to",
+		siteBase: "https://dev.to",
 	}
 }
 
@@ -60,7 +64,7 @@ func (s *DevtoScraper) Scrape(ctx context.Context, pages int, workers int) error
 		pages = 1
 	}
 
-	sourceID, err := ensureJobSource(ctx, s.db, "Dev.to Jobs", "https://dev.to")
+	sourceID, err := ensureJobSource(ctx, s.db, "Dev.to Jobs", s.siteBase)
 	if err != nil {
 		return err
 	}
@@ -119,7 +123,7 @@ func (s *DevtoScraper) Scrape(ctx context.Context, pages int, workers int) error
 }
 
 func (s *DevtoScraper) fetchListings(ctx context.Context, page int) ([]devtoListing, error) {
-	url := fmt.Sprintf("https://dev.to/api/listings?category=jobs&per_page=30&page=%d", page)
+	url := fmt.Sprintf("%s/api/listings?category=jobs&per_page=30&page=%d", strings.TrimRight(s.apiBase, "/"), page)
 	body, err := httpGetWithRetry(ctx, s.client, url, 3)
 	if err != nil {
 		return nil, err
@@ -132,7 +136,7 @@ func (s *DevtoScraper) fetchListings(ctx context.Context, page int) ([]devtoList
 }
 
 func (s *DevtoScraper) fetchListingDetail(ctx context.Context, id int) (devtoListingDetail, error) {
-	url := fmt.Sprintf("https://dev.to/api/listings/%d", id)
+	url := fmt.Sprintf("%s/api/listings/%d", strings.TrimRight(s.apiBase, "/"), id)
 	body, err := httpGetWithRetry(ctx, s.client, url, 3)
 	if err != nil {
 		return devtoListingDetail{}, err

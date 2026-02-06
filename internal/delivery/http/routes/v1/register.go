@@ -30,16 +30,16 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	userRepo := postgres.NewUserRepository(db)
 	userSkillRepo := repository.NewPostgresUserSkillRepository(db)
 	jobRepo := repository.NewPostgresJobRepository(db)
-	jobSkillRepo := repository.NewPostgresJobSkillRepository(db)
+	jobSkillV2Repo := repository.NewPostgresJobSkillV2Repository(db)
 	authUC := usecase.NewAuthUsecase(userRepo, jwtSvc)
 	userUC := usecase.NewUserUsecase(userRepo)
 	userSkillUC := usecase.NewUserSkillUsecase(userSkillRepo)
-	matchingUC := usecase.NewMatchingUsecase(jobRepo, jobSkillRepo, userSkillRepo)
+	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
 
 	authHandler := handler.NewAuthHandler(authUC)
 	userHandler := handler.NewUserHandler(userUC)
 	userSkillHandler := handler.NewUserSkillHandler(userSkillUC)
-	matchHandler := handler.NewMatchHandler(matchingUC)
+	matchV2Handler := handler.NewMatchV2Handler(matchingV2UC)
 
 	authGroup := r.Group("/auth")
 	authHandler.RegisterRoutes(authGroup)
@@ -48,5 +48,5 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 
 	usersGroup := protected.Group("/users")
 	RegisterUsers(usersGroup, userHandler, userSkillHandler)
-	matchHandler.RegisterRoutes(protected)
+	matchV2Handler.RegisterRoutes(protected)
 }

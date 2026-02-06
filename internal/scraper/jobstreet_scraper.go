@@ -65,7 +65,10 @@ func (s *JobStreetScraper) Scrape(ctx context.Context, startURLTemplate string, 
 		}()
 	}
 
+	_ = deactivateJobsForSource(ctx, s.db, sourceID)
+
 	pool := NewWorkerPool(workers, workers*2)
+	pool.SetRateLimit(3)
 	results := pool.Run(ctx)
 
 	for page := 1; page <= pages; page++ {

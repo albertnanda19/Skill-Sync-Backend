@@ -102,6 +102,18 @@ func (db *fakeDB) Exec(ctx context.Context, query string, args ...any) (int64, e
 	case strings.HasPrefix(q, "insert into scrape_logs"):
 		return 1, nil
 
+	case strings.HasPrefix(q, "update jobs set is_active"):
+		// args: source_id
+		sourceID := args[0].(uuid.UUID)
+		for k, v := range db.jobsByKey {
+			_ = k
+			if strings.HasPrefix(k, sourceID.String()+"|") {
+				v.IsActive = false
+				db.jobsByKey[k] = v
+			}
+		}
+		return 1, nil
+
 	case strings.HasPrefix(q, "insert into jobs"):
 		// args: id, source_id, external_job_id, title, company, location, employment_type,
 		// description, raw_description, posted_at, scraped_at, url, is_active
@@ -117,8 +129,16 @@ func (db *fakeDB) Exec(ctx context.Context, query string, args ...any) (int64, e
 			url = urlAny.(string)
 		}
 		key := sourceID.String() + "|" + externalID
+		if url != "" {
+			for k, v := range db.jobsByKey {
+				_ = k
+				if strings.HasPrefix(k, sourceID.String()+"|") && v.URL == url {
+					return 1, nil
+				}
+			}
+		}
 		if _, ok := db.jobsByKey[key]; ok {
-			return 0, nil
+			return 1, nil
 		}
 		in := rawJobInput{IsActive: true}
 		if v := args[3]; v != nil {
@@ -269,6 +289,95 @@ func TestJobStreetScraper_SuccessAndIdempotent(t *testing.T) {
 		}
 		if !strings.Contains(j.URL, "/job/abc") {
 			t.Fatalf("expected url to contain /job/abc, got %s", j.URL)
+		}
+	}
+}
+
+func TestGlintsScraper_SuccessAndIdempotent(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/jobs", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"jobs":[{"id":"g1","title":"Backend Engineer","location":"Remote","company":"Acme","createdAt":"2025-01-01T00:00:00Z","url":"","slug":"backend-engineer"}]}`))
+	})
+	mux.HandleFunc("/api/v1/jobs/g1", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"g1","title":"Backend Engineer","location":"Remote","companyName":"Acme","description":"desc","createdAt":"2025-01-01T00:00:00Z","url":""}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	db := newFakeDB()
+	s := NewGlintsScraper(db)
+	s.apiBase = server.URL
+	s.siteBase = server.URL
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := s.Scrape(ctx, 1, 3); err != nil {
+		t.Fatalf("scrape error: %v", err)
+	}
+	if err := s.Scrape(ctx, 1, 3); err != nil {
+		t.Fatalf("scrape error (2nd): %v", err)
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if got := len(db.jobsByKey); got != 1 {
+		t.Fatalf("expected 1 job inserted, got %d", got)
+	}
+	for _, j := range db.jobsByKey {
+		if strings.TrimSpace(j.ExternalJobID) == "" {
+			t.Fatalf("expected non-empty external id")
+		}
+		if strings.TrimSpace(j.URL) == "" {
+			t.Fatalf("expected non-empty url")
+		}
+		if !strings.Contains(j.URL, "/id/opportunities/jobs/") {
+			t.Fatalf("expected url to contain /id/opportunities/jobs/, got %s", j.URL)
+		}
+	}
+}
+
+func TestCompanyScraper_SuccessAndIdempotent(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/careers", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body><a href="/careers/job1">Job 1</a></body></html>`))
+	})
+	mux.HandleFunc("/careers/job1", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><head><title>Backend Go</title></head><body>desc</body></html>`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	db := newFakeDB()
+	s := NewCompanyScraper(db)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	targets := []CompanyCareersTarget{{
+		SourceName: "Acme Careers",
+		BaseURL:    server.URL,
+		ListURL:    server.URL + "/careers",
+	}}
+
+	if err := s.Scrape(ctx, targets, 1, 3); err != nil {
+		t.Fatalf("scrape error: %v", err)
+	}
+	if err := s.Scrape(ctx, targets, 1, 3); err != nil {
+		t.Fatalf("scrape error (2nd): %v", err)
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if got := len(db.jobsByKey); got != 1 {
+		t.Fatalf("expected 1 job inserted, got %d", got)
+	}
+	for _, j := range db.jobsByKey {
+		if strings.TrimSpace(j.URL) == "" {
+			t.Fatalf("expected non-empty url")
+		}
+		if !strings.Contains(j.URL, "/careers/job1") {
+			t.Fatalf("expected url to contain /careers/job1, got %s", j.URL)
 		}
 	}
 }

@@ -76,7 +76,10 @@ func (s *DevtoScraper) Scrape(ctx context.Context, pages int, workers int) error
 		}()
 	}
 
+	_ = deactivateJobsForSource(ctx, s.db, sourceID)
+
 	pool := NewWorkerPool(workers, workers*2)
+	pool.SetRateLimit(4)
 	results := pool.Run(ctx)
 
 	for page := 1; page <= pages; page++ {

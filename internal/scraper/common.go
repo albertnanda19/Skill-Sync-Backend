@@ -104,6 +104,17 @@ func logScrape(ctx context.Context, db database.DB, runID uuid.UUID, level strin
 	return err
 }
 
+func deactivateJobsForSource(ctx context.Context, db database.DB, sourceID uuid.UUID) error {
+	if db == nil {
+		return fmt.Errorf("nil db")
+	}
+	if sourceID == uuid.Nil {
+		return fmt.Errorf("nil source_id")
+	}
+	_, err := db.Exec(ctx, `UPDATE jobs SET is_active = false WHERE source_id = $1`, sourceID)
+	return err
+}
+
 func insertRawJob(ctx context.Context, db database.DB, sourceID uuid.UUID, runID uuid.UUID, in rawJobInput) error {
 	if db == nil {
 		return fmt.Errorf("nil db")
@@ -123,40 +134,75 @@ func insertRawJob(ctx context.Context, db database.DB, sourceID uuid.UUID, runID
 		externalID = stableExternalIDFromURL(in.URL)
 	}
 	url := strings.TrimSpace(in.URL)
-	if url != "" {
-		var exists bool
-		row := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM jobs WHERE source_id = $1 AND url = $2)`, sourceID, url)
-		if err := row.Scan(&exists); err == nil {
-			if exists {
-				return nil
-			}
-		}
-	}
 
-	_, err := db.Exec(ctx,
-		`INSERT INTO jobs (
-			id, source_id, external_job_id, title, company, location, employment_type,
-			description, raw_description, posted_at, scraped_at, url, is_active
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-		ON CONFLICT (source_id, external_job_id) DO NOTHING`,
-		uuid.New(),
-		sourceID,
-		nullableText(externalID),
-		nullableText(in.Title),
-		nullableText(in.Company),
-		nullableText(in.Location),
-		nullableText(in.EmploymentType),
-		nullableText(in.Description),
-		nullableText(in.RawDescription),
-		in.PostedAt,
-		scrapedAt,
-		nullableText(url),
-		in.IsActive,
-	)
+	var err error
+	if url != "" {
+		_, err = db.Exec(ctx,
+			`INSERT INTO jobs (
+				id, source_id, external_job_id, title, company, location, employment_type,
+				description, raw_description, posted_at, scraped_at, url, is_active
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			ON CONFLICT (source_id, url) DO UPDATE SET
+				external_job_id = COALESCE(EXCLUDED.external_job_id, jobs.external_job_id),
+				title = COALESCE(EXCLUDED.title, jobs.title),
+				company = COALESCE(EXCLUDED.company, jobs.company),
+				location = COALESCE(EXCLUDED.location, jobs.location),
+				employment_type = COALESCE(EXCLUDED.employment_type, jobs.employment_type),
+				description = COALESCE(EXCLUDED.description, jobs.description),
+				raw_description = COALESCE(EXCLUDED.raw_description, jobs.raw_description),
+				posted_at = COALESCE(EXCLUDED.posted_at, jobs.posted_at),
+				scraped_at = COALESCE(EXCLUDED.scraped_at, jobs.scraped_at),
+				is_active = EXCLUDED.is_active`,
+			uuid.New(),
+			sourceID,
+			nullableText(externalID),
+			nullableText(in.Title),
+			nullableText(in.Company),
+			nullableText(in.Location),
+			nullableText(in.EmploymentType),
+			nullableText(in.Description),
+			nullableText(in.RawDescription),
+			in.PostedAt,
+			scrapedAt,
+			nullableText(url),
+			in.IsActive,
+		)
+	} else {
+		_, err = db.Exec(ctx,
+			`INSERT INTO jobs (
+				id, source_id, external_job_id, title, company, location, employment_type,
+				description, raw_description, posted_at, scraped_at, url, is_active
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			ON CONFLICT (source_id, external_job_id) DO UPDATE SET
+				title = COALESCE(EXCLUDED.title, jobs.title),
+				company = COALESCE(EXCLUDED.company, jobs.company),
+				location = COALESCE(EXCLUDED.location, jobs.location),
+				employment_type = COALESCE(EXCLUDED.employment_type, jobs.employment_type),
+				description = COALESCE(EXCLUDED.description, jobs.description),
+				raw_description = COALESCE(EXCLUDED.raw_description, jobs.raw_description),
+				posted_at = COALESCE(EXCLUDED.posted_at, jobs.posted_at),
+				scraped_at = COALESCE(EXCLUDED.scraped_at, jobs.scraped_at),
+				is_active = EXCLUDED.is_active`,
+			uuid.New(),
+			sourceID,
+			nullableText(externalID),
+			nullableText(in.Title),
+			nullableText(in.Company),
+			nullableText(in.Location),
+			nullableText(in.EmploymentType),
+			nullableText(in.Description),
+			nullableText(in.RawDescription),
+			in.PostedAt,
+			scrapedAt,
+			nullableText(url),
+			in.IsActive,
+		)
+	}
 	if err != nil {
 		_ = logScrape(ctx, db, runID, "error", fmt.Sprintf("insert job external_id=%s url=%s: %v", externalID, in.URL, err))
 		return err
 	}
+	_ = logScrape(ctx, db, runID, "info", fmt.Sprintf("job upserted url=%s title=%s", url, strings.TrimSpace(in.Title)))
 
 	return nil
 }

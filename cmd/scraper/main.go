@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"strings"
 	"time"
 
 	"skill-sync/internal/app"
@@ -13,10 +14,11 @@ import (
 )
 
 func main() {
-	source := flag.String("source", "all", "all|jobstreet|devto")
+	source := flag.String("source", "all", "all|jobstreet|devto|glints|company")
 	pages := flag.Int("pages", 2, "number of pages to scrape")
 	workers := flag.Int("workers", 6, "number of concurrent workers")
 	jobstreetTemplate := flag.String("jobstreet_url_template", "https://www.jobstreet.co.id/id/job-search/jobs?sort=createdAt&page=%d", "JobStreet listing URL template with %d page placeholder")
+	companyTargets := flag.String("company_targets", "", "comma-separated company targets as name|listURL (example: Acme|https://acme.com/careers)")
 	flag.Parse()
 
 	cfg, err := config.Load()
@@ -51,6 +53,14 @@ func main() {
 		if err := scraper.NewDevtoScraper(c.DB).Scrape(ctx, *pages, *workers); err != nil {
 			log.Fatalf("devto scrape failed: %v", err)
 		}
+	case "glints":
+		if err := scraper.NewGlintsScraper(c.DB).Scrape(ctx, *pages, *workers); err != nil {
+			log.Fatalf("glints scrape failed: %v", err)
+		}
+	case "company":
+		if err := scraper.NewCompanyScraper(c.DB).Scrape(ctx, parseCompanyTargets(*companyTargets), *pages, *workers); err != nil {
+			log.Fatalf("company scrape failed: %v", err)
+		}
 	case "all":
 		if err := scraper.NewDevtoScraper(c.DB).Scrape(ctx, *pages, *workers); err != nil {
 			log.Printf("devto scrape failed: %v", err)
@@ -58,7 +68,39 @@ func main() {
 		if err := scraper.NewJobStreetScraper(c.DB).Scrape(ctx, *jobstreetTemplate, *pages, *workers); err != nil {
 			log.Printf("jobstreet scrape failed: %v", err)
 		}
+		if err := scraper.NewGlintsScraper(c.DB).Scrape(ctx, *pages, *workers); err != nil {
+			log.Printf("glints scrape failed: %v", err)
+		}
+		if err := scraper.NewCompanyScraper(c.DB).Scrape(ctx, parseCompanyTargets(*companyTargets), *pages, *workers); err != nil {
+			log.Printf("company scrape failed: %v", err)
+		}
 	default:
 		log.Fatalf("invalid -source: %s", *source)
 	}
+}
+
+func parseCompanyTargets(raw string) []scraper.CompanyCareersTarget {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]scraper.CompanyCareersTarget, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		name, listURL, ok := strings.Cut(p, "|")
+		if !ok {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		listURL = strings.TrimSpace(listURL)
+		if name == "" || listURL == "" {
+			continue
+		}
+		out = append(out, scraper.CompanyCareersTarget{SourceName: name, BaseURL: listURL, ListURL: listURL})
+	}
+	return out
 }

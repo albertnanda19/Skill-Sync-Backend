@@ -40,6 +40,9 @@ func Load() (Config, error) {
 		}
 		return v
 	}
+	opt := func(key string) string {
+		return strings.TrimSpace(os.Getenv(key))
+	}
 
 	cfg.App = AppConfig{
 		AppName:     req("APP_NAME"),
@@ -48,12 +51,12 @@ func Load() (Config, error) {
 	}
 
 	cfg.Database = DatabaseConfig{
-		DBHost:     req("DB_HOST"),
-		DBPort:     req("DB_PORT"),
-		DBName:     req("DB_NAME"),
-		DBUser:     req("DB_USER"),
-		DBPassword: req("DB_PASSWORD"),
-		DBSSLMode:  req("DB_SSL_MODE"),
+		DBHost:     opt("DB_HOST"),
+		DBPort:     opt("DB_PORT"),
+		DBName:     opt("DB_NAME"),
+		DBUser:     opt("DB_USER"),
+		DBPassword: opt("DB_PASSWORD"),
+		DBSSLMode:  opt("DB_SSL_MODE"),
 	}
 
 	if len(missing) > 0 {

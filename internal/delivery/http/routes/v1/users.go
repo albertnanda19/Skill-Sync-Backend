@@ -6,7 +6,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-func RegisterUsers(r fiber.Router, userHandler *handler.UserHandler) {
+func RegisterUsers(r fiber.Router, userHandler *handler.UserHandler, userSkillHandler *handler.UserSkillHandler) {
 	if r == nil {
 		return
 	}
@@ -15,4 +15,7 @@ func RegisterUsers(r fiber.Router, userHandler *handler.UserHandler) {
 	}
 
 	userHandler.RegisterRoutes(r)
+	if userSkillHandler != nil {
+		userSkillHandler.RegisterRoutes(r)
+	}
 }

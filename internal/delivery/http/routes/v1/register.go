@@ -7,6 +7,7 @@ import (
 	"skill-sync/internal/delivery/http/middleware"
 	"skill-sync/internal/infrastructure/persistence/postgres"
 	"skill-sync/internal/pkg/jwt"
+	"skill-sync/internal/repository"
 	"skill-sync/internal/usecase"
 
 	"github.com/gofiber/fiber/v3"
@@ -27,11 +28,14 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	authMw := middleware.NewAuthMiddleware(jwtSvc)
 
 	userRepo := postgres.NewUserRepository(db)
+	userSkillRepo := repository.NewPostgresUserSkillRepository(db)
 	authUC := usecase.NewAuthUsecase(userRepo, jwtSvc)
 	userUC := usecase.NewUserUsecase(userRepo)
+	userSkillUC := usecase.NewUserSkillUsecase(userSkillRepo)
 
 	authHandler := handler.NewAuthHandler(authUC)
 	userHandler := handler.NewUserHandler(userUC)
+	userSkillHandler := handler.NewUserSkillHandler(userSkillUC)
 
 	authGroup := r.Group("/auth")
 	authHandler.RegisterRoutes(authGroup)
@@ -39,5 +43,5 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	protected := r.Group("", authMw.Middleware())
 
 	usersGroup := protected.Group("/users")
-	RegisterUsers(usersGroup, userHandler)
+	RegisterUsers(usersGroup, userHandler, userSkillHandler)
 }

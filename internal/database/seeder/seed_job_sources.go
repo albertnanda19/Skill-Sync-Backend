@@ -29,6 +29,8 @@ func (JobSourcesSeeder) Run(ctx context.Context, db database.DB) error {
 		BaseURL string
 	}{
 		{Name: "LinkedIn", BaseURL: "https://www.linkedin.com/jobs"},
+		{Name: "JobStreet", BaseURL: "https://www.jobstreet.co.id"},
+		{Name: "Dev.to Jobs", BaseURL: "https://dev.to"},
 		{Name: "Glints", BaseURL: "https://glints.com"},
 		{Name: "Kalibrr", BaseURL: "https://www.kalibrr.com"},
 		{Name: "Indeed", BaseURL: "https://www.indeed.com"},

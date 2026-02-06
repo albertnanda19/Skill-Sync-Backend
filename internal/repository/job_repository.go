@@ -18,6 +18,7 @@ var (
 type JobRepository interface {
 	ExistsByID(ctx context.Context, jobID uuid.UUID) (bool, error)
 	ListJobs(ctx context.Context, limit, offset int) ([]Job, error)
+	ListActiveJobsWithoutSkills(ctx context.Context, limit, offset int) ([]JobForSkillExtraction, error)
 }
 
 type Job struct {
@@ -25,6 +26,13 @@ type Job struct {
 	Title    string
 	Company  string
 	Location string
+}
+
+type JobForSkillExtraction struct {
+	ID             uuid.UUID
+	Title          string
+	Description    string
+	RawDescription string
 }
 
 type PostgresJobRepository struct {
@@ -74,6 +82,48 @@ func (r *PostgresJobRepository) ListJobs(ctx context.Context, limit, offset int)
 	for rows.Next() {
 		var j Job
 		if err := rows.Scan(&j.ID, &j.Title, &j.Company, &j.Location); err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *PostgresJobRepository) ListActiveJobsWithoutSkills(ctx context.Context, limit, offset int) ([]JobForSkillExtraction, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := r.db.Query(ctx,
+		`SELECT j.id,
+		        COALESCE(j.title, ''),
+		        COALESCE(j.description, ''),
+		        COALESCE(j.raw_description, '')
+		 FROM jobs j
+		 WHERE j.is_active = true
+		   AND NOT EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = j.id)
+		 ORDER BY j.scraped_at DESC NULLS LAST, j.created_at DESC
+		 LIMIT $1 OFFSET $2`,
+		limit, offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]JobForSkillExtraction, 0)
+	for rows.Next() {
+		var j JobForSkillExtraction
+		if err := rows.Scan(&j.ID, &j.Title, &j.Description, &j.RawDescription); err != nil {
 			return nil, err
 		}
 		out = append(out, j)

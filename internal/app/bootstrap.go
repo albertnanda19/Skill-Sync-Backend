@@ -6,7 +6,7 @@ import (
 
 	"skill-sync/internal/config"
 	"skill-sync/internal/delivery/http/middleware"
-	"skill-sync/internal/pkg/response"
+	"skill-sync/internal/delivery/http/routes"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -44,9 +44,7 @@ func registerRoutes(app *fiber.App) {
 		return
 	}
 
-	app.Get("/health", func(c fiber.Ctx) error {
-		return response.Success(c, fiber.StatusOK, response.MessageOK, nil)
-	})
+	routes.NewRegistry().Register(app)
 }
 
 func ListenAddr(port string) (string, error) {

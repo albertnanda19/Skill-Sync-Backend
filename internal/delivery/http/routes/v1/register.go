@@ -37,15 +37,19 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	userSkillUC := usecase.NewUserSkillUsecase(userSkillRepo)
 	jobRecommendationUC := usecase.NewJobRecommendationUsecase(jobRepo, jobSkillRepo, userSkillRepo)
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
+	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo)
 
 	authHandler := handler.NewAuthHandler(authUC)
 	userHandler := handler.NewUserHandler(userUC)
 	userSkillHandler := handler.NewUserSkillHandler(userSkillUC)
 	jobRecommendationHandler := handler.NewJobRecommendationHandler(jobRecommendationUC)
 	matchV2Handler := handler.NewMatchV2Handler(matchingV2UC)
+	jobsHandler := handler.NewJobsHandler(jobListUC)
 
 	authGroup := r.Group("/auth")
 	authHandler.RegisterRoutes(authGroup)
+
+	r.Get("/jobs", jobsHandler.HandleListJobs)
 
 	protected := r.Group("", authMw.Middleware())
 

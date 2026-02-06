@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
+	"strings"
+	"time"
 
 	"skill-sync/internal/database"
 
@@ -18,6 +21,7 @@ var (
 type JobRepository interface {
 	ExistsByID(ctx context.Context, jobID uuid.UUID) (bool, error)
 	ListJobs(ctx context.Context, limit, offset int) ([]Job, error)
+	ListJobsForListing(ctx context.Context, f JobListFilter) ([]JobListRow, error)
 	ListActiveJobsWithoutSkills(ctx context.Context, limit, offset int) ([]JobForSkillExtraction, error)
 }
 
@@ -33,6 +37,24 @@ type JobForSkillExtraction struct {
 	Title          string
 	Description    string
 	RawDescription string
+}
+
+type JobListFilter struct {
+	Title       string
+	CompanyName string
+	Location    string
+	Skills      []string
+	Limit       int
+	Offset      int
+}
+
+type JobListRow struct {
+	ID          uuid.UUID
+	Title       string
+	Company     string
+	Location    string
+	Description string
+	PostedAt    *time.Time
 }
 
 type PostgresJobRepository struct {
@@ -90,6 +112,99 @@ func (r *PostgresJobRepository) ListJobs(ctx context.Context, limit, offset int)
 		return nil, err
 	}
 	return out, nil
+}
+
+func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobListFilter) ([]JobListRow, error) {
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	base := strings.Builder{}
+	base.WriteString(`SELECT j.id,
+		COALESCE(j.title, ''),
+		COALESCE(j.company, ''),
+		COALESCE(j.location, ''),
+		COALESCE(j.description, ''),
+		j.posted_at
+		FROM jobs j
+		WHERE 1=1`)
+
+	args := make([]any, 0, 6)
+	argN := 1
+
+	if strings.TrimSpace(f.Title) != "" {
+		base.WriteString(" AND j.title ILIKE $" + itoa(argN))
+		args = append(args, "%"+strings.TrimSpace(f.Title)+"%")
+		argN++
+	}
+	if strings.TrimSpace(f.CompanyName) != "" {
+		base.WriteString(" AND j.company ILIKE $" + itoa(argN))
+		args = append(args, "%"+strings.TrimSpace(f.CompanyName)+"%")
+		argN++
+	}
+	if strings.TrimSpace(f.Location) != "" {
+		base.WriteString(" AND j.location ILIKE $" + itoa(argN))
+		args = append(args, "%"+strings.TrimSpace(f.Location)+"%")
+		argN++
+	}
+	if len(f.Skills) > 0 {
+		patterns := make([]string, 0, len(f.Skills))
+		for _, s := range f.Skills {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			patterns = append(patterns, "%"+s+"%")
+		}
+		if len(patterns) > 0 {
+			base.WriteString(" AND EXISTS (")
+			base.WriteString("SELECT 1 FROM job_skills js JOIN skills s ON s.id = js.skill_id ")
+			base.WriteString("WHERE js.job_id = j.id AND s.name ILIKE ANY($" + itoa(argN) + ")")
+			base.WriteString(")")
+			args = append(args, patterns)
+			argN++
+		}
+	}
+
+	base.WriteString(" ORDER BY j.posted_at DESC NULLS LAST, j.created_at DESC")
+	base.WriteString(" LIMIT $" + itoa(argN) + " OFFSET $" + itoa(argN+1))
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(ctx, base.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]JobListRow, 0)
+	for rows.Next() {
+		var it JobListRow
+		var posted sql.NullTime
+		if err := rows.Scan(&it.ID, &it.Title, &it.Company, &it.Location, &it.Description, &posted); err != nil {
+			return nil, err
+		}
+		if posted.Valid {
+			t := posted.Time
+			it.PostedAt = &t
+		}
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func itoa(i int) string {
+	return strconv.Itoa(i)
 }
 
 func (r *PostgresJobRepository) ListActiveJobsWithoutSkills(ctx context.Context, limit, offset int) ([]JobForSkillExtraction, error) {

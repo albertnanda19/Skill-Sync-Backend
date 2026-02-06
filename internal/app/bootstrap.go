@@ -8,6 +8,7 @@ import (
 
 	"skill-sync/internal/config"
 	"skill-sync/internal/database/migration"
+	"skill-sync/internal/database/seeder"
 	"skill-sync/internal/delivery/http/middleware"
 	"skill-sync/internal/delivery/http/routes"
 
@@ -42,6 +43,17 @@ func Bootstrap(cfg config.Config) (*App, func() error, error) {
 	if err := r.Run(ctx, c.DB.SQLDB()); err != nil {
 		_ = c.Close()
 		return nil, nil, err
+	}
+
+	if cfg.Database.RunSeeders {
+		seedCtx, seedCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer seedCancel()
+
+		sr := seeder.Runner{Seeders: seeder.Defaults()}
+		if err := sr.Run(seedCtx, c.DB); err != nil {
+			_ = c.Close()
+			return nil, nil, err
+		}
 	}
 
 	app := New(cfg)

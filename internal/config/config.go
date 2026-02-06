@@ -28,6 +28,8 @@ type DatabaseConfig struct {
 	DBPassword string
 	DBSSLMode  string
 
+	RunSeeders bool
+
 	ConnectTimeout        time.Duration
 	PoolMaxConns          int32
 	PoolMinConns          int32
@@ -68,6 +70,8 @@ func Load() (Config, error) {
 		DBUser:     opt("DB_USER"),
 		DBPassword: opt("DB_PASSWORD"),
 		DBSSLMode:  opt("DB_SSL_MODE"),
+
+		RunSeeders: optBool("DB_RUN_SEEDERS"),
 
 		ConnectTimeout:        optDuration("DB_CONNECT_TIMEOUT"),
 		PoolMaxConns:          optInt32("DB_POOL_MAX_CONNS"),
@@ -112,6 +116,18 @@ func optDuration(key string) time.Duration {
 		return 0
 	}
 	return d
+}
+
+func optBool(key string) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return false
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false
+	}
+	return v
 }
 
 func loadDotEnvIfPresent(path string) error {

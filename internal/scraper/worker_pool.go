@@ -78,7 +78,11 @@ func (p *WorkerPool) Close() {
 }
 
 func (p *WorkerPool) Run(ctx context.Context) <-chan Result {
-	out := make(chan Result)
+	buf := p.workers * 1024
+	if buf < 1 {
+		buf = 1
+	}
+	out := make(chan Result, buf)
 	if p == nil {
 		close(out)
 		return out

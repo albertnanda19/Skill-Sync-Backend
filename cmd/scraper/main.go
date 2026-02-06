@@ -19,6 +19,7 @@ func main() {
 	workers := flag.Int("workers", 6, "number of concurrent workers")
 	jobstreetTemplate := flag.String("jobstreet_url_template", "https://www.jobstreet.co.id/id/job-search/jobs?sort=createdAt&page=%d", "JobStreet listing URL template with %d page placeholder")
 	companyTargets := flag.String("company_targets", "", "comma-separated company targets as name|listURL (example: Acme|https://acme.com/careers)")
+	glintsHeadless := flag.Bool("glints_headless", false, "enable headless browser fallback for Glints (requires Chrome/Chromium)")
 	flag.Parse()
 
 	cfg, err := config.Load()
@@ -46,34 +47,60 @@ func main() {
 
 	switch *source {
 	case "jobstreet":
+		log.Printf("scrape start source=jobstreet pages=%d workers=%d", *pages, *workers)
+		started := time.Now()
 		if err := scraper.NewJobStreetScraper(c.DB).Scrape(ctx, *jobstreetTemplate, *pages, *workers); err != nil {
 			log.Fatalf("jobstreet scrape failed: %v", err)
 		}
+		log.Printf("scrape finished source=jobstreet duration=%s", time.Since(started))
 	case "devto":
+		log.Printf("scrape start source=devto pages=%d workers=%d", *pages, *workers)
+		started := time.Now()
 		if err := scraper.NewDevtoScraper(c.DB).Scrape(ctx, *pages, *workers); err != nil {
 			log.Fatalf("devto scrape failed: %v", err)
 		}
+		log.Printf("scrape finished source=devto duration=%s", time.Since(started))
 	case "glints":
-		if err := scraper.NewGlintsScraper(c.DB).Scrape(ctx, *pages, *workers); err != nil {
+		log.Printf("scrape start source=glints pages=%d workers=%d", *pages, *workers)
+		started := time.Now()
+		gs := scraper.NewGlintsScraper(c.DB)
+		gs.EnableHeadlessFallback(*glintsHeadless)
+		if err := gs.Scrape(ctx, *pages, *workers); err != nil {
 			log.Fatalf("glints scrape failed: %v", err)
 		}
+		log.Printf("scrape finished source=glints duration=%s", time.Since(started))
 	case "company":
+		log.Printf("scrape start source=company pages=%d workers=%d", *pages, *workers)
+		started := time.Now()
 		if err := scraper.NewCompanyScraper(c.DB).Scrape(ctx, parseCompanyTargets(*companyTargets), *pages, *workers); err != nil {
 			log.Fatalf("company scrape failed: %v", err)
 		}
+		log.Printf("scrape finished source=company duration=%s", time.Since(started))
 	case "all":
+		log.Printf("scrape start source=all pages=%d workers=%d", *pages, *workers)
 		if err := scraper.NewDevtoScraper(c.DB).Scrape(ctx, *pages, *workers); err != nil {
 			log.Printf("devto scrape failed: %v", err)
+		} else {
+			log.Printf("scrape finished source=devto")
 		}
 		if err := scraper.NewJobStreetScraper(c.DB).Scrape(ctx, *jobstreetTemplate, *pages, *workers); err != nil {
 			log.Printf("jobstreet scrape failed: %v", err)
+		} else {
+			log.Printf("scrape finished source=jobstreet")
 		}
-		if err := scraper.NewGlintsScraper(c.DB).Scrape(ctx, *pages, *workers); err != nil {
+		gs := scraper.NewGlintsScraper(c.DB)
+		gs.EnableHeadlessFallback(*glintsHeadless)
+		if err := gs.Scrape(ctx, *pages, *workers); err != nil {
 			log.Printf("glints scrape failed: %v", err)
+		} else {
+			log.Printf("scrape finished source=glints")
 		}
 		if err := scraper.NewCompanyScraper(c.DB).Scrape(ctx, parseCompanyTargets(*companyTargets), *pages, *workers); err != nil {
 			log.Printf("company scrape failed: %v", err)
+		} else {
+			log.Printf("scrape finished source=company")
 		}
+		log.Printf("scrape finished source=all")
 	default:
 		log.Fatalf("invalid -source: %s", *source)
 	}

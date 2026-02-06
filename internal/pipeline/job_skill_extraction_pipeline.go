@@ -83,6 +83,10 @@ func (p *JobSkillExtractionPipeline) Run(ctx context.Context, params RunParams) 
 
 				reqs := extractJobRequirements(j, skillsByName)
 				res.SkillCount = len(reqs)
+				if len(reqs) == 0 {
+					p.log.Printf("pipeline=job_skill_extraction status=skipped job_id=%s reason=no_description duration=%s", j.ID, res.Duration)
+					return Result{Err: nil}
+				}
 
 				if err := p.reqs.UpsertForJob(ctx, j.ID, reqs); err != nil {
 					res.Err = err
@@ -109,9 +113,6 @@ func extractJobRequirements(j repository.JobForSkillExtraction, skillsByName map
 	text := strings.TrimSpace(j.Description)
 	if text == "" {
 		text = strings.TrimSpace(j.RawDescription)
-	}
-	if text == "" {
-		text = strings.TrimSpace(j.Title)
 	}
 	if text == "" {
 		return nil

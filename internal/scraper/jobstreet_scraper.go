@@ -15,14 +15,16 @@ import (
 )
 
 type JobStreetScraper struct {
-	db          database.DB
-	baseURL     string
-	allowedHost string
+	db             database.DB
+	baseURL        string
+	allowedHost    string
+	allowedHostAlt string
 }
 
 func NewJobStreetScraper(db database.DB) *JobStreetScraper {
 	s := &JobStreetScraper{db: db, baseURL: "https://www.jobstreet.co.id"}
 	s.allowedHost = hostFromBaseURL(s.baseURL)
+	s.allowedHostAlt = "id.jobstreet.com"
 	return s
 }
 
@@ -32,6 +34,7 @@ func NewJobStreetScraperWithBaseURL(db database.DB, baseURL string) *JobStreetSc
 		s.baseURL = "https://www.jobstreet.co.id"
 	}
 	s.allowedHost = hostFromBaseURL(s.baseURL)
+	s.allowedHostAlt = "id.jobstreet.com"
 	return s
 }
 
@@ -118,10 +121,10 @@ func (s *JobStreetScraper) Scrape(ctx context.Context, startURLTemplate string, 
 
 func (s *JobStreetScraper) scrapeListingPage(ctx context.Context, listURL string) ([]jobstreetListItem, error) {
 	c := colly.NewCollector(
-		colly.AllowedDomains(s.allowedHost),
+		colly.AllowedDomains(s.allowedHost, s.allowedHostAlt),
 	)
 
-	_ = c.Limit(&colly.LimitRule{DomainGlob: "*jobstreet.co.id*", Parallelism: 2, RandomDelay: 750 * time.Millisecond, Delay: 400 * time.Millisecond})
+	_ = c.Limit(&colly.LimitRule{DomainGlob: "*jobstreet*", Parallelism: 2, RandomDelay: 750 * time.Millisecond, Delay: 400 * time.Millisecond})
 
 	items := make([]jobstreetListItem, 0)
 
@@ -193,9 +196,9 @@ type jobstreetDetail struct {
 
 func (s *JobStreetScraper) scrapeDetailPage(ctx context.Context, jobURL string) (jobstreetDetail, error) {
 	c := colly.NewCollector(
-		colly.AllowedDomains(s.allowedHost),
+		colly.AllowedDomains(s.allowedHost, s.allowedHostAlt),
 	)
-	_ = c.Limit(&colly.LimitRule{DomainGlob: "*jobstreet.co.id*", Parallelism: 2, RandomDelay: 850 * time.Millisecond, Delay: 450 * time.Millisecond})
+	_ = c.Limit(&colly.LimitRule{DomainGlob: "*jobstreet*", Parallelism: 2, RandomDelay: 850 * time.Millisecond, Delay: 450 * time.Millisecond})
 
 	var out jobstreetDetail
 	var reqErr error

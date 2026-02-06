@@ -295,18 +295,16 @@ func TestJobStreetScraper_SuccessAndIdempotent(t *testing.T) {
 
 func TestGlintsScraper_SuccessAndIdempotent(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/jobs", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"jobs":[{"id":"g1","title":"Backend Engineer","location":"Remote","company":"Acme","createdAt":"2025-01-01T00:00:00Z","url":"","slug":"backend-engineer"}]}`))
-	})
-	mux.HandleFunc("/api/v1/jobs/g1", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"id":"g1","title":"Backend Engineer","location":"Remote","companyName":"Acme","description":"desc","createdAt":"2025-01-01T00:00:00Z","url":""}`))
+	mux.HandleFunc("/id/opportunities/jobs/explore", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<!doctype html><html><head></head><body>
+		<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"jobs":[{"id":"g1","title":"Backend Engineer","location":"Remote","company":"Acme","url":"/id/opportunities/jobs/backend-engineer/g1","slug":"backend-engineer"}]}}}</script>
+		</body></html>`))
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	db := newFakeDB()
 	s := NewGlintsScraper(db)
-	s.apiBase = server.URL
 	s.siteBase = server.URL
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -331,8 +329,8 @@ func TestGlintsScraper_SuccessAndIdempotent(t *testing.T) {
 		if strings.TrimSpace(j.URL) == "" {
 			t.Fatalf("expected non-empty url")
 		}
-		if !strings.Contains(j.URL, "/id/opportunities/jobs/") {
-			t.Fatalf("expected url to contain /id/opportunities/jobs/, got %s", j.URL)
+		if !strings.Contains(j.URL, "/id/opportunities/jobs/backend-engineer/g1") {
+			t.Fatalf("expected url to contain /id/opportunities/jobs/backend-engineer/g1, got %s", j.URL)
 		}
 	}
 }

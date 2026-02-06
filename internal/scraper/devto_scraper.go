@@ -165,7 +165,10 @@ func httpGetWithRetry(ctx context.Context, client *http.Client, url string, atte
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("User-Agent", "SkillSyncScraper/0.1")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+		req.Header.Set("Accept", "*/*")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9,id;q=0.8")
+		req.Header.Set("Connection", "keep-alive")
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err

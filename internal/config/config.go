@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -25,6 +27,13 @@ type DatabaseConfig struct {
 	DBUser     string
 	DBPassword string
 	DBSSLMode  string
+
+	ConnectTimeout        time.Duration
+	PoolMaxConns          int32
+	PoolMinConns          int32
+	PoolMaxConnLifetime   time.Duration
+	PoolMaxConnIdleTime   time.Duration
+	PoolHealthCheckPeriod time.Duration
 }
 
 var errMissingRequiredEnv = errors.New("missing required environment variables")
@@ -59,6 +68,13 @@ func Load() (Config, error) {
 		DBUser:     opt("DB_USER"),
 		DBPassword: opt("DB_PASSWORD"),
 		DBSSLMode:  opt("DB_SSL_MODE"),
+
+		ConnectTimeout:        optDuration("DB_CONNECT_TIMEOUT"),
+		PoolMaxConns:          optInt32("DB_POOL_MAX_CONNS"),
+		PoolMinConns:          optInt32("DB_POOL_MIN_CONNS"),
+		PoolMaxConnLifetime:   optDuration("DB_POOL_MAX_CONN_LIFETIME"),
+		PoolMaxConnIdleTime:   optDuration("DB_POOL_MAX_CONN_IDLE_TIME"),
+		PoolHealthCheckPeriod: optDuration("DB_POOL_HEALTHCHECK_PERIOD"),
 	}
 
 	if len(missing) > 0 {
@@ -66,6 +82,36 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func optInt32(key string) int32 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil {
+		return 0
+	}
+	if v <= 0 {
+		return 0
+	}
+	return int32(v)
+}
+
+func optDuration(key string) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0
+	}
+	if d <= 0 {
+		return 0
+	}
+	return d
 }
 
 func loadDotEnvIfPresent(path string) error {

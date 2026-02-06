@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"skill-sync/internal/config"
+	"skill-sync/internal/database"
 	"skill-sync/internal/database/migration"
 	"skill-sync/internal/database/seeder"
 	"skill-sync/internal/delivery/http/middleware"
@@ -22,10 +23,9 @@ type App struct {
 
 func New(cfg config.Config) *App {
 	f := fiber.New(fiber.Config{})
-	_ = cfg
 
 	registerGlobalMiddleware(f)
-	registerRoutes(f)
+	_ = cfg
 
 	return &App{Fiber: f}
 }
@@ -58,6 +58,7 @@ func Bootstrap(cfg config.Config) (*App, func() error, error) {
 
 	app := New(cfg)
 	app.C = c
+	registerRoutes(app.Fiber, cfg, c.DB)
 	return app, c.Close, nil
 }
 
@@ -70,12 +71,12 @@ func registerGlobalMiddleware(app *fiber.App) {
 	app.Use(errMw.Middleware())
 }
 
-func registerRoutes(app *fiber.App) {
+func registerRoutes(app *fiber.App, cfg config.Config, db database.DB) {
 	if app == nil {
 		return
 	}
 
-	routes.NewRegistry().Register(app)
+	routes.NewRegistry(cfg, db).Register(app)
 }
 
 func ListenAddr(port string) (string, error) {

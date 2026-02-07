@@ -41,25 +41,40 @@ func (s *FreshnessService) EnsureFresh(ctx context.Context, query, location stri
 		return
 	}
 	if s.repo == nil {
+		if s.logger != nil {
+			s.logger.Printf("[Jobs] Freshness skipped: nil repo")
+		}
 		return
 	}
 	if s.scraper == nil {
+		if s.logger != nil {
+			s.logger.Printf("[Jobs] Freshness skipped: scraper client not configured")
+		}
 		return
 	}
 
 	query = strings.TrimSpace(query)
 	location = strings.TrimSpace(location)
-	if query == "" && location == "" {
+	if query == "" || location == "" {
+		if s.logger != nil {
+			s.logger.Printf("[Jobs] Freshness skipped: requires both query and location query=%q location=%q", query, location)
+		}
 		return
 	}
 
 	latest, err := s.repo.GetLatestScrapedAt(ctx, query, location)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Printf("[Jobs] Freshness check error query=%q location=%q err=%v", query, location, err)
+		}
 		return
 	}
 
 	stale := latest.IsZero() || time.Since(latest) > s.freshnessThreshold
 	if !stale {
+		if s.logger != nil {
+			s.logger.Printf("[Jobs] Freshness OK query=%q location=%q latest=%v threshold=%s", query, location, latest, s.freshnessThreshold)
+		}
 		return
 	}
 	if s.logger != nil {

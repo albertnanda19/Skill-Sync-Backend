@@ -130,6 +130,54 @@ func (r *Redis) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+func (r *Redis) DeleteByPattern(ctx context.Context, pattern string) error {
+	if r.isUnavailable() {
+		return nil
+	}
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return nil
+	}
+	return deleteByPattern(ctx, r.client, r.logger, pattern)
+}
+
+func (r *Redis) InvalidateCacheByKeyword(ctx context.Context, keyword string) error {
+	if r.isUnavailable() {
+		return nil
+	}
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil
+	}
+
+	patterns := []string{
+		"search:" + keyword + ":*",
+		"jobs:list:*",
+		"jobs:search:*",
+		"jobs:lock:*",
+		"jobs:freshness:lock:*",
+	}
+
+	keys := []string{
+		"freshness:" + keyword,
+		"ranking:" + keyword,
+		"suggest:" + keyword,
+	}
+
+	var firstErr error
+	for _, p := range patterns {
+		if err := r.DeleteByPattern(ctx, p); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	for _, k := range keys {
+		if err := r.Delete(ctx, k); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 func (r *Redis) SetIfNotExists(ctx context.Context, key string, value string, ttl time.Duration) (bool, error) {
 	if r.isUnavailable() {
 		return false, nil
@@ -155,4 +203,17 @@ func DefaultTTLFromEnv() time.Duration {
 		return 600 * time.Second
 	}
 	return time.Duration(v) * time.Second
+}
+
+func deleteByPattern(ctx context.Context, rdb *redis.Client, logger *log.Logger, pattern string) error {
+	iter := rdb.Scan(ctx, 0, pattern, 0).Iterator()
+	for iter.Next(ctx) {
+		k := iter.Val()
+		if err := rdb.Del(ctx, k).Err(); err != nil {
+			if logger != nil {
+				logger.Printf("[Cache] Redis delete error key=%s pattern=%s err=%v", k, pattern, err)
+			}
+		}
+	}
+	return iter.Err()
 }

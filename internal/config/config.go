@@ -14,6 +14,8 @@ type Config struct {
 	Database DatabaseConfig
 	JWT      JWTConfig
 
+	InternalToken string
+
 	SearchFreshnessMinutes int
 	ScraperBaseURL         string
 }
@@ -111,6 +113,8 @@ func Load() (Config, error) {
 		AccessExpiresIn:  reqDuration("JWT_ACCESS_EXPIRES_IN"),
 		RefreshExpiresIn: reqDuration("JWT_REFRESH_EXPIRES_IN"),
 	}
+
+	cfg.InternalToken = req("INTERNAL_TOKEN")
 
 	cfg.SearchFreshnessMinutes = optInt("SEARCH_FRESHNESS_MINUTES", 30)
 	cfg.ScraperBaseURL = opt("SCRAPER_BASE_URL")

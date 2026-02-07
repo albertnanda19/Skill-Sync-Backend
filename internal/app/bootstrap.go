@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -66,6 +67,10 @@ func registerGlobalMiddleware(app *fiber.App) {
 	if app == nil {
 		return
 	}
+
+	logger := log.Default()
+	accessLogMw := middleware.NewAccessLogMiddleware(logger)
+	app.Use(accessLogMw.Middleware())
 
 	errMw := middleware.NewErrorMiddleware()
 	app.Use(errMw.Middleware())

@@ -93,9 +93,14 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 	cacheable := sp.HasFilter()
 	cacheKey := ""
 	lockKey := ""
-	if cacheable {
-		if u != nil && u.freshness != nil {
-			u.freshness.EnsureFresh(ctx, params.Title, params.Location)
+	if u != nil && u.freshness != nil {
+		title := strings.TrimSpace(params.Title)
+		loc := strings.TrimSpace(params.Location)
+		if loc == "" {
+			loc = "Indonesia"
+		}
+		if title != "" {
+			u.freshness.EnsureFresh(ctx, title, loc)
 		}
 	}
 	if cacheable {

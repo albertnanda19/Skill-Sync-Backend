@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -72,8 +73,13 @@ func (c *httpScraperClient) TriggerScrape(ctx context.Context, query string, loc
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return "", errors.New("scraper trigger failed")
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		bodyStr := strings.TrimSpace(string(rb))
+		err := fmt.Errorf("scraper trigger failed: status=%d body=%s", resp.StatusCode, bodyStr)
+		if c.logger != nil {
+			c.logger.Printf("[Scraper] TriggerScrape error endpoint=%s status=%d body=%q", endpoint, resp.StatusCode, bodyStr)
+		}
+		return "", err
 	}
 
 	var out triggerScrapeResponse

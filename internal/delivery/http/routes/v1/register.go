@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"log"
 	"os"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"skill-sync/internal/infrastructure/persistence/postgres"
 	"skill-sync/internal/pkg/jwt"
 	"skill-sync/internal/repository"
+	"skill-sync/internal/service"
 	"skill-sync/internal/usecase"
 
 	"github.com/gofiber/fiber/v3"
@@ -38,13 +40,21 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	jobSkillRepo := repository.NewPostgresJobSkillRepository(db)
 	jobSkillV2Repo := repository.NewPostgresJobSkillV2Repository(db)
 	pipelineStatusRepo := repository.NewPostgresPipelineStatusRepository(db)
+
+	logger := log.Default()
+	scraperSvc := service.NewScraperService(
+		logger,
+		service.NewJobStreetScraper(),
+		service.NewDevtoScraper(),
+		service.NewGlintsScraper(),
+	)
 	authUC := usecase.NewAuthUsecase(userRepo, jwtSvc)
 	userUC := usecase.NewUserUsecase(userRepo)
 	userSkillUC := usecase.NewUserSkillUsecase(userSkillRepo)
 	skillUC := usecase.NewSkillUsecase(skillRepo)
 	jobRecommendationUC := usecase.NewJobRecommendationUsecase(jobRepo, jobSkillRepo, userSkillRepo)
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
-	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo)
+	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, scraperSvc)
 	pipelineStatusUC := usecase.NewPipelineStatusUsecase(pipelineStatusRepo, nil)
 
 	authHandler := handler.NewAuthHandler(authUC)

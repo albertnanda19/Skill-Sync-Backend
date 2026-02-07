@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"skill-sync/internal/repository"
+	"skill-sync/internal/service"
 
 	"github.com/google/uuid"
 )
@@ -30,29 +31,30 @@ type JobListItem struct {
 }
 
 type JobListUsecase interface {
-	ListJobs(ctx context.Context, params JobListParams) ([]JobListItem, error)
+	ListJobs(ctx context.Context, params JobListParams) ([]JobListItem, bool, error)
 }
 
 type JobList struct {
 	jobs      repository.JobRepository
 	jobSkills repository.JobSkillRepository
+	scraper   service.ScraperService
 }
 
-func NewJobListUsecase(jobs repository.JobRepository, jobSkills repository.JobSkillRepository) *JobList {
-	return &JobList{jobs: jobs, jobSkills: jobSkills}
+func NewJobListUsecase(jobs repository.JobRepository, jobSkills repository.JobSkillRepository, scraperSvc service.ScraperService) *JobList {
+	return &JobList{jobs: jobs, jobSkills: jobSkills, scraper: scraperSvc}
 }
 
-func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobListItem, error) {
+func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobListItem, bool, error) {
 	limit := params.Limit
 	if limit == 0 {
 		limit = 20
 	}
 	if limit < 0 || limit > 50 {
-		return nil, ErrInvalidInput
+		return nil, false, ErrInvalidInput
 	}
 	offset := params.Offset
 	if offset < 0 {
-		return nil, ErrInvalidInput
+		return nil, false, ErrInvalidInput
 	}
 
 	skills := make([]string, 0, len(params.Skills))
@@ -64,6 +66,28 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 		skills = append(skills, s)
 	}
 
+	partial := false
+	if u != nil && u.scraper != nil {
+		sp := service.SearchParams{
+			Title:       params.Title,
+			CompanyName: params.CompanyName,
+			Location:    params.Location,
+			Skills:      skills,
+			Limit:       limit,
+			Offset:      offset,
+		}
+		if sp.HasFilter() {
+			jobs, err := u.scraper.Search(ctx, sp)
+			if err != nil {
+				partial = true
+			} else {
+				if err := u.jobs.UpsertJobs(ctx, jobs); err != nil {
+					partial = true
+				}
+			}
+		}
+	}
+
 	rows, err := u.jobs.ListJobsForListing(ctx, repository.JobListFilter{
 		Title:       params.Title,
 		CompanyName: params.CompanyName,
@@ -73,7 +97,7 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 		Offset:      offset,
 	})
 	if err != nil {
-		return nil, ErrInternal
+		return nil, partial, ErrInternal
 	}
 
 	jobIDs := make([]uuid.UUID, 0, len(rows))
@@ -86,7 +110,7 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 
 	reqsByJobID, err := u.jobSkills.FindByJobIDs(ctx, jobIDs)
 	if err != nil {
-		return nil, ErrInternal
+		return nil, partial, ErrInternal
 	}
 
 	out := make([]JobListItem, 0, len(rows))
@@ -110,5 +134,5 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 			PostedAt:    r.PostedAt,
 		})
 	}
-	return out, nil
+	return out, partial, nil
 }

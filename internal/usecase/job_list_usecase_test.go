@@ -24,6 +24,7 @@ func (m mockJobRepo) ListActiveJobsWithoutSkills(context.Context, int, int) ([]r
 func (m mockJobRepo) ListJobsForListing(context.Context, repository.JobListFilter) ([]repository.JobListRow, error) {
 	return m.items, m.err
 }
+func (m mockJobRepo) UpsertJobs(context.Context, []repository.JobUpsert) error { return nil }
 
 type mockJobSkillRepo struct {
 	m   map[uuid.UUID][]repository.JobSkillRequirement
@@ -41,8 +42,8 @@ func (m mockJobSkillRepo) FindByJobIDs(context.Context, []uuid.UUID) (map[uuid.U
 }
 
 func TestJobListUsecase_ListJobs_InvalidLimit(t *testing.T) {
-	uc := NewJobListUsecase(mockJobRepo{}, mockJobSkillRepo{})
-	_, err := uc.ListJobs(context.Background(), JobListParams{Limit: -1, Offset: 0})
+	uc := NewJobListUsecase(mockJobRepo{}, mockJobSkillRepo{}, nil)
+	_, _, err := uc.ListJobs(context.Background(), JobListParams{Limit: -1, Offset: 0})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
 	}
@@ -64,11 +65,15 @@ func TestJobListUsecase_ListJobs_Success(t *testing.T) {
 			{SkillID: uuid.New(), SkillName: "Go", ImportanceWeight: 5},
 			{SkillID: uuid.New(), SkillName: "PostgreSQL", ImportanceWeight: 4},
 		}}},
+		nil,
 	)
 
-	items, err := uc.ListJobs(context.Background(), JobListParams{Limit: 20, Offset: 0})
+	items, partial, err := uc.ListJobs(context.Background(), JobListParams{Limit: 20, Offset: 0})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
+	}
+	if partial {
+		t.Fatalf("expected partial=false")
 	}
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))

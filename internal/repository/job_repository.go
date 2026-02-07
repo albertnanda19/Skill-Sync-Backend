@@ -23,6 +23,7 @@ type JobRepository interface {
 	ListJobs(ctx context.Context, limit, offset int) ([]Job, error)
 	ListJobsForListing(ctx context.Context, f JobListFilter) ([]JobListRow, error)
 	ListActiveJobsWithoutSkills(ctx context.Context, limit, offset int) ([]JobForSkillExtraction, error)
+	UpsertJobs(ctx context.Context, jobs []JobUpsert) error
 }
 
 type Job struct {
@@ -30,6 +31,22 @@ type Job struct {
 	Title    string
 	Company  string
 	Location string
+}
+
+type JobUpsert struct {
+	SourceName     string
+	SourceBaseURL  string
+	SourceURL      string
+	ExternalJobID  string
+	Title          string
+	Company        string
+	Location       string
+	EmploymentType string
+	Description    string
+	RawDescription string
+	PostedAt       *time.Time
+	ScrapedAt      *time.Time
+	IsActive       bool
 }
 
 type JobForSkillExtraction struct {
@@ -205,6 +222,127 @@ func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobLis
 
 func itoa(i int) string {
 	return strconv.Itoa(i)
+}
+
+func (r *PostgresJobRepository) UpsertJobs(ctx context.Context, jobs []JobUpsert) error {
+	if r == nil || r.db == nil {
+		return errors.New("nil repository/db")
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		_ = tx.Rollback(context.Background())
+	}()
+
+	sourceIDByName := make(map[string]uuid.UUID)
+	for _, j := range jobs {
+		name := strings.TrimSpace(j.SourceName)
+		if name == "" {
+			continue
+		}
+		if _, ok := sourceIDByName[name]; ok {
+			continue
+		}
+		id, err := ensureJobSourceTx(ctx, tx, name, strings.TrimSpace(j.SourceBaseURL))
+		if err != nil {
+			return err
+		}
+		sourceIDByName[name] = id
+	}
+
+	now := time.Now().UTC()
+	for _, j := range jobs {
+		sourceName := strings.TrimSpace(j.SourceName)
+		sourceURL := strings.TrimSpace(j.SourceURL)
+		if sourceName == "" || sourceURL == "" {
+			continue
+		}
+		sourceID := sourceIDByName[sourceName]
+		if sourceID == uuid.Nil {
+			continue
+		}
+
+		scrapedAt := j.ScrapedAt
+		if scrapedAt == nil {
+			scrapedAt = &now
+		}
+		isActive := j.IsActive
+		if !isActive {
+			isActive = true
+		}
+
+		_, err := tx.Exec(ctx,
+			`INSERT INTO jobs (
+				id, source_id, external_job_id, title, company, location, employment_type,
+				description, raw_description, posted_at, scraped_at, url, is_active
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			ON CONFLICT (source_id, url) DO NOTHING`,
+			uuid.New(),
+			sourceID,
+			nullableText(j.ExternalJobID),
+			nullableText(j.Title),
+			nullableText(j.Company),
+			nullableText(j.Location),
+			nullableText(j.EmploymentType),
+			nullableText(j.Description),
+			nullableText(j.RawDescription),
+			j.PostedAt,
+			scrapedAt,
+			nullableText(sourceURL),
+			isActive,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func ensureJobSourceTx(ctx context.Context, tx database.Tx, name string, baseURL string) (uuid.UUID, error) {
+	if tx == nil {
+		return uuid.Nil, errors.New("nil tx")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return uuid.Nil, errors.New("empty source name")
+	}
+	baseURL = strings.TrimSpace(baseURL)
+
+	_, _ = tx.Exec(ctx,
+		`INSERT INTO job_sources (id, name, base_url) VALUES (gen_random_uuid(), $1, $2) ON CONFLICT (name) DO NOTHING`,
+		name,
+		nullableText(baseURL),
+	)
+
+	row := tx.QueryRow(ctx, `SELECT id FROM job_sources WHERE name = $1 LIMIT 1`, name)
+	var id uuid.UUID
+	if err := row.Scan(&id); err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}
+
+func nullableText(s string) any {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func (r *PostgresJobRepository) ListActiveJobsWithoutSkills(ctx context.Context, limit, offset int) ([]JobForSkillExtraction, error) {

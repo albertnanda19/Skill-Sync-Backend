@@ -124,7 +124,7 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 			if u.logger != nil {
 				u.logger.Printf("[Jobs] Cache MISS: %s", cacheKey)
 			}
-			if u != nil && u.trigger != nil {
+			if u.trigger != nil {
 				kw := strings.TrimSpace(params.Title)
 				if kw != "" {
 					go u.trigger.HandleSearchTrigger(context.Background(), kw)

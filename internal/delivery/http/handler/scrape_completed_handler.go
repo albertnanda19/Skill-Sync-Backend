@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,9 @@ type ScrapeCompletedRequest struct {
 
 type scrapeCacheInvalidator interface {
 	InvalidateCacheByKeyword(ctx context.Context, keyword string) error
+	SetString(ctx context.Context, key string, value string, ttl time.Duration) error
+	Delete(ctx context.Context, key string) error
+	Publish(ctx context.Context, channel string, payload string) error
 }
 
 type ScrapeCompletedHandler struct {
@@ -65,6 +69,15 @@ func (h *ScrapeCompletedHandler) HandleScrapeCompleted(c fiber.Ctx) error {
 
 	if h.logger != nil {
 		h.logger.Printf("Scrape completed | task=%s keyword=%s source=%s", req.TaskID, req.Keyword, req.Source)
+	}
+
+	kwNorm := strings.ToLower(strings.Join(strings.Fields(req.Keyword), " "))
+	if kwNorm != "" {
+		now := strconv.FormatInt(time.Now().Unix(), 10)
+		_ = h.cache.SetString(context.Background(), "scrape:last:"+kwNorm, now, 1*time.Hour)
+		_ = h.cache.Delete(context.Background(), "scrape:lock:"+kwNorm)
+		_ = h.cache.Delete(context.Background(), "scrape:task:"+kwNorm)
+		_ = h.cache.Publish(context.Background(), "jobs:invalidate:"+kwNorm, "1")
 	}
 
 	if h.cache != nil {

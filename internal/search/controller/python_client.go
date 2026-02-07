@@ -25,7 +25,8 @@ type httpPythonClient struct {
 }
 
 type triggerScrapeRequest struct {
-	Keyword string `json:"keyword"`
+	Query    string `json:"query"`
+	Location string `json:"location"`
 }
 
 type triggerScrapeResponse struct {
@@ -61,7 +62,7 @@ func (c *httpPythonClient) TriggerScrape(ctx context.Context, keyword string) (s
 	}
 	endpoint := c.baseURL + "/scrape"
 
-	body := triggerScrapeRequest{Keyword: strings.TrimSpace(keyword)}
+	body := triggerScrapeRequest{Query: strings.TrimSpace(keyword), Location: "Indonesia"}
 	b, err := json.Marshal(body)
 	if err != nil {
 		return "", err

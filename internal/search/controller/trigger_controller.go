@@ -23,12 +23,11 @@ type redisDeps interface {
 }
 
 type Controller struct {
-	cache         redisDeps
-	python        PythonClient
-	logger        *log.Logger
-	cooldown      time.Duration
-	lockTTL       time.Duration
-	lastScrapeTTL time.Duration
+	cache    redisDeps
+	python   PythonClient
+	logger   *log.Logger
+	cooldown time.Duration
+	lockTTL  time.Duration
 }
 
 func NewTriggerController(cache redisDeps, python PythonClient, cfg config.Config, logger *log.Logger) *Controller {
@@ -41,12 +40,11 @@ func NewTriggerController(cache redisDeps, python PythonClient, cfg config.Confi
 		lockTTL = 300 * time.Second
 	}
 	return &Controller{
-		cache:         cache,
-		python:        python,
-		logger:        logger,
-		cooldown:      cooldown,
-		lockTTL:       lockTTL,
-		lastScrapeTTL: 1 * time.Hour,
+		cache:    cache,
+		python:   python,
+		logger:   logger,
+		cooldown: cooldown,
+		lockTTL:  lockTTL,
 	}
 }
 
@@ -139,9 +137,6 @@ func (c *Controller) handle(ctx context.Context, keyword string) {
 
 	// STEP 6 — Store metadata
 	_ = c.cache.SetString(context.Background(), taskKey(kw), taskID, c.lockTTL)
-
-	// STEP 7 — Background monitor
-	_ = monitorScrape(context.Background(), kw, taskID, c.python, c.cache, c.logger, c.lockTTL, c.lastScrapeTTL)
 }
 
 var _ TriggerController = (*Controller)(nil)

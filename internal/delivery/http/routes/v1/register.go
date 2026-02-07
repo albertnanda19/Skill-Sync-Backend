@@ -9,6 +9,7 @@ import (
 	"skill-sync/internal/database"
 	"skill-sync/internal/delivery/http/handler"
 	"skill-sync/internal/delivery/http/middleware"
+	"skill-sync/internal/infrastructure/cache"
 	"skill-sync/internal/infrastructure/persistence/postgres"
 	"skill-sync/internal/pkg/jwt"
 	"skill-sync/internal/repository"
@@ -42,6 +43,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	pipelineStatusRepo := repository.NewPostgresPipelineStatusRepository(db)
 
 	logger := log.Default()
+	redisCache := cache.NewRedis(logger)
 	scraperSvc := service.NewScraperService(
 		logger,
 		service.NewJobStreetScraper(),
@@ -54,7 +56,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	skillUC := usecase.NewSkillUsecase(skillRepo)
 	jobRecommendationUC := usecase.NewJobRecommendationUsecase(jobRepo, jobSkillRepo, userSkillRepo)
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
-	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, scraperSvc)
+	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, scraperSvc, redisCache, logger)
 	pipelineStatusUC := usecase.NewPipelineStatusUsecase(pipelineStatusRepo, nil)
 
 	authHandler := handler.NewAuthHandler(authUC)

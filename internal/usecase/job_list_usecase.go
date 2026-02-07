@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"log"
 	"strings"
 	"time"
 
@@ -38,10 +39,12 @@ type JobList struct {
 	jobs      repository.JobRepository
 	jobSkills repository.JobSkillRepository
 	scraper   service.ScraperService
+	cache     SearchCache
+	logger    *log.Logger
 }
 
-func NewJobListUsecase(jobs repository.JobRepository, jobSkills repository.JobSkillRepository, scraperSvc service.ScraperService) *JobList {
-	return &JobList{jobs: jobs, jobSkills: jobSkills, scraper: scraperSvc}
+func NewJobListUsecase(jobs repository.JobRepository, jobSkills repository.JobSkillRepository, scraperSvc service.ScraperService, cache SearchCache, logger *log.Logger) *JobList {
+	return &JobList{jobs: jobs, jobSkills: jobSkills, scraper: scraperSvc, cache: cache, logger: logger}
 }
 
 func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobListItem, bool, error) {
@@ -66,17 +69,70 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 		skills = append(skills, s)
 	}
 
-	partial := false
-	if u != nil && u.scraper != nil {
-		sp := service.SearchParams{
-			Title:       params.Title,
-			CompanyName: params.CompanyName,
-			Location:    params.Location,
-			Skills:      skills,
-			Limit:       limit,
-			Offset:      offset,
+	params.Limit = limit
+	params.Offset = offset
+	params.Skills = skills
+
+	sp := service.SearchParams{
+		Title:       params.Title,
+		CompanyName: params.CompanyName,
+		Location:    params.Location,
+		Skills:      skills,
+		Limit:       limit,
+		Offset:      offset,
+	}
+
+	cacheable := sp.HasFilter()
+	cacheKey := ""
+	lockKey := ""
+	if cacheable {
+		cacheKey = JobsSearchCacheKey(params)
+		lockKey = JobsSearchLockKey(cacheKey)
+
+		if u != nil && u.cache != nil {
+			var cached []JobListItem
+			hit, err := u.cache.GetJSON(ctx, cacheKey, &cached)
+			if err == nil && hit {
+				if u.logger != nil {
+					u.logger.Printf("[Jobs] Cache HIT: %s", cacheKey)
+				}
+				return cached, false, nil
+			}
+			if u.logger != nil {
+				u.logger.Printf("[Jobs] Cache MISS: %s", cacheKey)
+			}
 		}
-		if sp.HasFilter() {
+	}
+
+	partial := false
+	lockAcquired := false
+	if cacheable && u != nil && u.cache != nil {
+		ok, err := u.cache.SetIfNotExists(ctx, lockKey, "1", 30*time.Second)
+		if err == nil && ok {
+			lockAcquired = true
+			if u.logger != nil {
+				u.logger.Printf("[Jobs] Lock acquired: %s", lockKey)
+			}
+		} else if err == nil && !ok {
+			jitterMs := time.Duration(time.Now().UnixNano()%201) * time.Millisecond
+			wait := 300*time.Millisecond + jitterMs
+			time.Sleep(wait)
+			var cached []JobListItem
+			hit, err2 := u.cache.GetJSON(ctx, cacheKey, &cached)
+			if err2 == nil && hit {
+				if u.logger != nil {
+					u.logger.Printf("[Jobs] Cache HIT: %s", cacheKey)
+				}
+				return cached, false, nil
+			}
+			if u.logger != nil {
+				u.logger.Printf("[Jobs] Lock wait fallback: %s", lockKey)
+			}
+		}
+	}
+
+	if u != nil && u.scraper != nil {
+		if cacheable {
 			jobs, err := u.scraper.Search(ctx, sp)
 			if err != nil {
 				partial = true
@@ -133,6 +189,16 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 			Skills:      jobSkills,
 			PostedAt:    r.PostedAt,
 		})
+	}
+
+	if cacheable && u != nil && u.cache != nil {
+		_ = u.cache.SetJSON(ctx, cacheKey, out, 0)
+		if u.logger != nil {
+			u.logger.Printf("[Jobs] Cache SET: %s", cacheKey)
+		}
+		if lockAcquired {
+			_ = u.cache.Delete(ctx, lockKey)
+		}
 	}
 	return out, partial, nil
 }

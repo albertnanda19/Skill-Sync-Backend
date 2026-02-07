@@ -23,7 +23,7 @@ type JobRepository interface {
 	ListJobs(ctx context.Context, limit, offset int) ([]Job, error)
 	ListJobsForListing(ctx context.Context, f JobListFilter) ([]JobListRow, error)
 	ListActiveJobsWithoutSkills(ctx context.Context, limit, offset int) ([]JobForSkillExtraction, error)
-	GetLatestScrapedAt(ctx context.Context, f JobFreshnessFilter) (time.Time, error)
+	GetLatestScrapedAt(ctx context.Context, title string, location string) (time.Time, error)
 	UpsertJobs(ctx context.Context, jobs []JobUpsert) error
 }
 
@@ -251,7 +251,7 @@ func itoa(i int) string {
 	return strconv.Itoa(i)
 }
 
-func (r *PostgresJobRepository) GetLatestScrapedAt(ctx context.Context, f JobFreshnessFilter) (time.Time, error) {
+func (r *PostgresJobRepository) GetLatestScrapedAt(ctx context.Context, title string, location string) (time.Time, error) {
 	if r == nil || r.db == nil {
 		return time.Time{}, errors.New("nil repository/db")
 	}
@@ -261,14 +261,14 @@ func (r *PostgresJobRepository) GetLatestScrapedAt(ctx context.Context, f JobFre
 
 	args := make([]any, 0, 2)
 	argN := 1
-	if strings.TrimSpace(f.Title) != "" {
+	if strings.TrimSpace(title) != "" {
 		q.WriteString(" AND j.title ILIKE $" + itoa(argN))
-		args = append(args, "%"+strings.TrimSpace(f.Title)+"%")
+		args = append(args, "%"+strings.TrimSpace(title)+"%")
 		argN++
 	}
-	if strings.TrimSpace(f.Location) != "" {
+	if strings.TrimSpace(location) != "" {
 		q.WriteString(" AND j.location ILIKE $" + itoa(argN))
-		args = append(args, "%"+strings.TrimSpace(f.Location)+"%")
+		args = append(args, "%"+strings.TrimSpace(location)+"%")
 		argN++
 	}
 

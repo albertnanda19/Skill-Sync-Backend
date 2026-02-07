@@ -53,7 +53,7 @@ func (s *FreshnessService) EnsureFresh(ctx context.Context, query, location stri
 		return
 	}
 
-	latest, err := s.repo.GetLatestScrapedAt(ctx, repository.JobFreshnessFilter{Title: query, Location: location})
+	latest, err := s.repo.GetLatestScrapedAt(ctx, query, location)
 	if err != nil {
 		return
 	}
@@ -87,7 +87,7 @@ func (s *FreshnessService) EnsureFresh(ctx context.Context, query, location stri
 	}
 
 	go func() {
-		ctx2, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		taskID, err := s.scraper.TriggerScrape(ctx2, query, location)

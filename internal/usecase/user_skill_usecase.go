@@ -13,6 +13,7 @@ import (
 var (
 	ErrSkillAlreadyExists      = errors.New("skill already exists")
 	ErrSkillNotFound           = errors.New("skill not found")
+	ErrForbidden               = errors.New("forbidden")
 	ErrInvalidProficiencyLevel = errors.New("invalid proficiency level")
 	ErrInvalidInput            = errors.New("invalid input")
 )
@@ -41,6 +42,7 @@ type UserSkillUsecase interface {
 	AddUserSkill(ctx context.Context, userID uuid.UUID, in AddUserSkillInput) (UserSkillItem, error)
 	UpdateUserSkill(ctx context.Context, userID uuid.UUID, skillUserID uuid.UUID, in UpdateUserSkillInput) (UserSkillItem, error)
 	DeleteUserSkill(ctx context.Context, userID uuid.UUID, skillUserID uuid.UUID) error
+	RemoveUserSkill(ctx context.Context, userID uuid.UUID, skillID uuid.UUID) error
 }
 
 type UserSkill struct {
@@ -160,10 +162,31 @@ func (u *UserSkill) DeleteUserSkill(ctx context.Context, userID uuid.UUID, skill
 	}
 	err := u.repo.Delete(ctx, skillUserID, userID)
 	if err != nil {
-		if errors.Is(err, repository.ErrUserSkillNotFound) {
+		switch {
+		case errors.Is(err, repository.ErrUserSkillNotFound):
 			return ErrSkillNotFound
+		case errors.Is(err, repository.ErrUserSkillForbidden):
+			return ErrForbidden
+		default:
+			return ErrInternal
 		}
-		return ErrInternal
+	}
+	return nil
+}
+
+func (u *UserSkill) RemoveUserSkill(ctx context.Context, userID uuid.UUID, skillID uuid.UUID) error {
+	if skillID == uuid.Nil {
+		return ErrInvalidInput
+	}
+	if err := u.repo.DeleteUserSkill(ctx, userID, skillID); err != nil {
+		switch {
+		case errors.Is(err, repository.ErrUserSkillNotFound):
+			return ErrSkillNotFound
+		case errors.Is(err, repository.ErrUserSkillForbidden):
+			return ErrForbidden
+		default:
+			return ErrInternal
+		}
 	}
 	return nil
 }

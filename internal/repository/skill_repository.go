@@ -15,6 +15,7 @@ type Skill struct {
 
 type SkillRepository interface {
 	GetAllSkills(ctx context.Context) ([]Skill, error)
+	CreateSkill(ctx context.Context, name string) (Skill, error)
 }
 
 type PostgresSkillRepository struct {
@@ -44,4 +45,13 @@ func (r *PostgresSkillRepository) GetAllSkills(ctx context.Context) ([]Skill, er
 		return nil, err
 	}
 	return out, nil
+}
+
+func (r *PostgresSkillRepository) CreateSkill(ctx context.Context, name string) (Skill, error) {
+	id := uuid.New()
+	_, err := r.db.Exec(ctx, `INSERT INTO skills (id, name) VALUES ($1, $2)`, id, name)
+	if err != nil {
+		return Skill{}, err
+	}
+	return Skill{ID: id, Name: name}, nil
 }

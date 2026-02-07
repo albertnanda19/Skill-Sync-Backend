@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"strings"
 
 	"skill-sync/internal/repository"
 
@@ -15,6 +16,7 @@ type SkillItem struct {
 
 type SkillUsecase interface {
 	ListSkills(ctx context.Context) ([]SkillItem, error)
+	AddSkill(ctx context.Context, name string) (SkillItem, error)
 }
 
 type Skill struct {
@@ -36,4 +38,17 @@ func (u *Skill) ListSkills(ctx context.Context) ([]SkillItem, error) {
 		out = append(out, SkillItem{ID: it.ID, Name: it.Name})
 	}
 	return out, nil
+}
+
+func (u *Skill) AddSkill(ctx context.Context, name string) (SkillItem, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return SkillItem{}, ErrInvalidInput
+	}
+
+	created, err := u.repo.CreateSkill(ctx, name)
+	if err != nil {
+		return SkillItem{}, ErrInternal
+	}
+	return SkillItem{ID: created.ID, Name: created.Name}, nil
 }

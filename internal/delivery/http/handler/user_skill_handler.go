@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"strings"
 
 	"skill-sync/internal/delivery/http/dto"
 	"skill-sync/internal/delivery/http/middleware"
@@ -137,15 +138,19 @@ func (h *UserSkillHandler) Delete(c fiber.Ctx) error {
 		return middleware.NewAppError(fiber.StatusUnauthorized, "Unauthorized", nil, nil)
 	}
 
-	id, err := uuid.Parse(c.Params("id"))
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return middleware.NewAppError(fiber.StatusBadRequest, "Bad request", nil, err)
+		return middleware.NewAppError(fiber.StatusBadRequest, "Invalid skill id", nil, err)
 	}
 
 	if err := h.uc.DeleteUserSkill(c.Context(), userID, id); err != nil {
+		if errors.Is(err, usecase.ErrInvalidInput) {
+			return middleware.NewAppError(fiber.StatusBadRequest, "Invalid skill id", nil, err)
+		}
 		return mapUserSkillUsecaseError(err)
 	}
-	return response.Success(c, fiber.StatusOK, response.MessageOK, nil)
+	return response.Success(c, fiber.StatusOK, "Skill deleted successfully", nil)
 }
 
 func mapUserSkillUsecaseError(err error) error {
@@ -160,6 +165,8 @@ func mapUserSkillUsecaseError(err error) error {
 		return middleware.NewAppError(fiber.StatusConflict, "Skill already exists", nil, err)
 	case errors.Is(err, usecase.ErrSkillNotFound):
 		return middleware.NewAppError(fiber.StatusNotFound, "Skill not found", nil, err)
+	case errors.Is(err, usecase.ErrForbidden):
+		return middleware.NewAppError(fiber.StatusForbidden, "Forbidden", nil, err)
 	case errors.Is(err, usecase.ErrInvalidInput):
 		return middleware.NewAppError(fiber.StatusBadRequest, "Bad request", nil, err)
 	case errors.Is(err, usecase.ErrInternal):

@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	ErrUserSkillNotFound = errors.New("skill not found")
+	ErrUserSkillNotFound  = errors.New("skill not found")
+	ErrUserSkillForbidden = errors.New("forbidden")
 )
 
 type UserSkill struct {
@@ -31,6 +32,7 @@ type UserSkillRepository interface {
 	Create(ctx context.Context, us UserSkill) (UserSkill, error)
 	Update(ctx context.Context, us UserSkill) (UserSkill, error)
 	Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID) error
+	DeleteUserSkill(ctx context.Context, userID uuid.UUID, skillID uuid.UUID) error
 }
 
 type PostgresUserSkillRepository struct {
@@ -155,15 +157,43 @@ func (r *PostgresUserSkillRepository) Update(ctx context.Context, us UserSkill) 
 }
 
 func (r *PostgresUserSkillRepository) Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
+	var owner uuid.UUID
+	row := r.db.QueryRow(ctx, `SELECT user_id FROM user_skills WHERE id = $1`, id)
+	if err := row.Scan(&owner); err != nil {
+		if err == sql.ErrNoRows || errors.Is(err, pgx.ErrNoRows) {
+			return ErrUserSkillNotFound
+		}
+		return err
+	}
+	if owner != userID {
+		return ErrUserSkillForbidden
+	}
+
+	_, err := r.db.Exec(ctx, `DELETE FROM user_skills WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *PostgresUserSkillRepository) DeleteUserSkill(ctx context.Context, userID uuid.UUID, skillID uuid.UUID) error {
+	exists, err := r.SkillExistsByID(ctx, skillID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrUserSkillNotFound
+	}
+
 	rowsAffected, err := r.db.Exec(ctx,
-		`DELETE FROM user_skills WHERE id = $1 AND user_id = $2`,
-		id, userID,
+		`DELETE FROM user_skills WHERE user_id = $1 AND skill_id = $2`,
+		userID, skillID,
 	)
 	if err != nil {
 		return err
 	}
 	if rowsAffected == 0 {
-		return ErrUserSkillNotFound
+		return ErrUserSkillForbidden
 	}
 	return nil
 }

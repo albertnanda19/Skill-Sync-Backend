@@ -41,6 +41,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	jobSkillRepo := repository.NewPostgresJobSkillRepository(db)
 	jobSkillV2Repo := repository.NewPostgresJobSkillV2Repository(db)
 	pipelineStatusRepo := repository.NewPostgresPipelineStatusRepository(db)
+	pipelineRepo := repository.NewPostgresPipelineRepository(db)
 
 	logger := log.Default()
 	redisCache := cache.NewRedis(logger)
@@ -58,6 +59,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
 	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, scraperSvc, redisCache, logger)
 	pipelineStatusUC := usecase.NewPipelineStatusUsecase(pipelineStatusRepo, nil)
+	pipelineUC := usecase.NewPipelineUsecase(pipelineRepo, db, redisCache)
 
 	authHandler := handler.NewAuthHandler(authUC)
 	userHandler := handler.NewUserHandler(userUC)
@@ -67,6 +69,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	matchV2Handler := handler.NewMatchV2Handler(matchingV2UC)
 	jobsHandler := handler.NewJobsHandler(jobListUC)
 	pipelineStatusHandler := handler.NewPipelineStatusHandler(pipelineStatusUC, nil)
+	pipelineHandler := handler.NewPipelineHandler(pipelineUC)
 
 	authGroup := r.Group("/auth")
 	authHandler.RegisterRoutes(authGroup)
@@ -86,4 +89,5 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	RegisterJobs(protected, jobRecommendationHandler)
 	matchV2Handler.RegisterRoutes(protected)
 	pipelineStatusHandler.RegisterRoutes(protected)
+	pipelineHandler.RegisterRoutes(protected)
 }

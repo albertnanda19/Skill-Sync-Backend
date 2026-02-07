@@ -73,6 +73,13 @@ func (r *Redis) warnUnavailableOnce(err error) {
 	}
 }
 
+func (r *Redis) Ping(ctx context.Context) error {
+	if r.isUnavailable() {
+		return errors.New("redis unavailable")
+	}
+	return r.client.Ping(ctx).Err()
+}
+
 func (r *Redis) GetJSON(ctx context.Context, key string, out any) (bool, error) {
 	if r.isUnavailable() {
 		return false, nil

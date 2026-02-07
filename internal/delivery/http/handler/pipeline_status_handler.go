@@ -26,7 +26,7 @@ func (h *PipelineStatusHandler) RegisterRoutes(r fiber.Router) {
 	if r == nil {
 		return
 	}
-	r.Get("/pipeline/status", h.GetStatus)
+	r.Get("/pipeline/metrics", h.GetStatus)
 }
 
 func (h *PipelineStatusHandler) GetStatus(c fiber.Ctx) error {

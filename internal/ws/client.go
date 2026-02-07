@@ -14,16 +14,18 @@ const (
 )
 
 type Client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte
+	hub     *Hub
+	conn    *websocket.Conn
+	send    chan []byte
+	keyword string
 }
 
-func NewClient(hub *Hub, conn *websocket.Conn) *Client {
+func NewClient(hub *Hub, conn *websocket.Conn, keyword string) *Client {
 	return &Client{
-		hub:  hub,
-		conn: conn,
-		send: make(chan []byte, 256),
+		hub:     hub,
+		conn:    conn,
+		send:    make(chan []byte, 256),
+		keyword: keyword,
 	}
 }
 

@@ -3,6 +3,7 @@ package ws
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/adaptor"
@@ -31,6 +32,14 @@ func (h *Handler) HandleJobsWS(c fiber.Ctx) error {
 		return fiber.ErrServiceUnavailable
 	}
 
+	keyword := strings.ToLower(strings.TrimSpace(c.Query("keyword")))
+	if keyword == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "keyword is required")
+	}
+	if len(keyword) > 100 {
+		return fiber.NewError(fiber.StatusBadRequest, "keyword is too long")
+	}
+
 	fiberHandler := adaptor.HTTPHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -40,7 +49,7 @@ func (h *Handler) HandleJobsWS(c fiber.Ctx) error {
 			return
 		}
 
-		client := NewClient(h.hub, conn)
+		client := NewClient(h.hub, conn, keyword)
 		h.hub.Register(client)
 		go client.WritePump()
 		go client.ReadPump()

@@ -5,22 +5,27 @@ import (
 	"sync"
 )
 
+type ScopedMessage struct {
+	Keyword string
+	Payload []byte
+}
+
 type Hub struct {
-	clients    map[*Client]bool
-	broadcast  chan []byte
-	register   chan *Client
-	unregister chan *Client
-	mutex      sync.RWMutex
-	logger     *log.Logger
+	clientsByKeyword map[string]map[*Client]bool
+	broadcast        chan ScopedMessage
+	register         chan *Client
+	unregister       chan *Client
+	mutex            sync.RWMutex
+	logger           *log.Logger
 }
 
 func NewHub(logger *log.Logger) *Hub {
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		broadcast:  make(chan []byte, 1024),
-		register:   make(chan *Client, 128),
-		unregister: make(chan *Client, 128),
-		logger:     logger,
+		clientsByKeyword: make(map[string]map[*Client]bool),
+		broadcast:        make(chan ScopedMessage, 1024),
+		register:         make(chan *Client, 128),
+		unregister:       make(chan *Client, 128),
+		logger:           logger,
 	}
 }
 
@@ -31,33 +36,48 @@ func (h *Hub) Run() {
 			if client == nil {
 				continue
 			}
+			keyword := client.keyword
 			h.mutex.Lock()
-			h.clients[client] = true
-			total := len(h.clients)
+			if _, ok := h.clientsByKeyword[keyword]; !ok {
+				h.clientsByKeyword[keyword] = make(map[*Client]bool)
+			}
+			h.clientsByKeyword[keyword][client] = true
+			totalForKeyword := len(h.clientsByKeyword[keyword])
 			h.mutex.Unlock()
 			if h.logger != nil {
-				h.logger.Printf("WS connected | total_clients=%d", total)
+				h.logger.Printf("WS connected | keyword=%s total_for_keyword=%d", keyword, totalForKeyword)
 			}
 
 		case client := <-h.unregister:
 			if client == nil {
 				continue
 			}
+			keyword := client.keyword
+			remaining := 0
 			h.mutex.Lock()
-			if _, ok := h.clients[client]; ok {
-				delete(h.clients, client)
-				close(client.send)
+			if group, ok := h.clientsByKeyword[keyword]; ok {
+				if _, ok := group[client]; ok {
+					delete(group, client)
+					close(client.send)
+				}
+				remaining = len(group)
+				if remaining == 0 {
+					delete(h.clientsByKeyword, keyword)
+				}
 			}
-			total := len(h.clients)
 			h.mutex.Unlock()
 			if h.logger != nil {
-				h.logger.Printf("WS disconnected | total_clients=%d", total)
+				h.logger.Printf("WS disconnected | keyword=%s remaining=%d", keyword, remaining)
 			}
 
-		case message := <-h.broadcast:
+		case msg := <-h.broadcast:
+			if msg.Keyword == "" {
+				continue
+			}
 			h.mutex.RLock()
-			clientsSnapshot := make([]*Client, 0, len(h.clients))
-			for c := range h.clients {
+			group := h.clientsByKeyword[msg.Keyword]
+			clientsSnapshot := make([]*Client, 0, len(group))
+			for c := range group {
 				clientsSnapshot = append(clientsSnapshot, c)
 			}
 			total := len(clientsSnapshot)
@@ -65,14 +85,14 @@ func (h *Hub) Run() {
 
 			for _, client := range clientsSnapshot {
 				select {
-				case client.send <- message:
+				case client.send <- msg.Payload:
 				default:
 					h.unregister <- client
 				}
 			}
 
 			if h.logger != nil {
-				h.logger.Printf("WS broadcast | clients=%d", total)
+				h.logger.Printf("WS broadcast | keyword=%s clients=%d", msg.Keyword, total)
 			}
 		}
 	}
@@ -92,24 +112,27 @@ func (h *Hub) Unregister(client *Client) {
 	h.unregister <- client
 }
 
-func (h *Hub) Broadcast(message []byte) {
+func (h *Hub) Broadcast(keyword string, message []byte) {
 	if h == nil {
 		return
 	}
+	if keyword == "" {
+		return
+	}
 	select {
-	case h.broadcast <- message:
+	case h.broadcast <- ScopedMessage{Keyword: keyword, Payload: message}:
 	default:
 		if h.logger != nil {
-			h.logger.Printf("WS broadcast dropped | reason=buffer_full")
+			h.logger.Printf("WS broadcast dropped | keyword=%s reason=buffer_full", keyword)
 		}
 	}
 }
 
-func (h *Hub) ClientCount() int {
+func (h *Hub) ClientCount(keyword string) int {
 	if h == nil {
 		return 0
 	}
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
-	return len(h.clients)
+	return len(h.clientsByKeyword[keyword])
 }

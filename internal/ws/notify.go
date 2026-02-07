@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -25,6 +26,11 @@ func NotifyJobsUpdated(keyword string, source string) {
 		return
 	}
 
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	if keyword == "" {
+		return
+	}
+
 	evt := JobsUpdatedEvent{
 		Type:      "jobs_updated",
 		Keyword:   keyword,
@@ -36,5 +42,5 @@ func NotifyJobsUpdated(keyword string, source string) {
 		return
 	}
 
-	h.Broadcast(b)
+	h.Broadcast(keyword, b)
 }

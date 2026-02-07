@@ -58,6 +58,7 @@ func TestJobListUsecase_ListJobs_Success(t *testing.T) {
 			Title:       "Backend Engineer",
 			Company:     "Acme",
 			Location:    "Jakarta",
+			SourceURL:   "https://example.com/job/1",
 			Description: "desc",
 			PostedAt:    &posted,
 		}}},
@@ -82,6 +83,9 @@ func TestJobListUsecase_ListJobs_Success(t *testing.T) {
 	}
 	if items[0].JobID != jobID {
 		t.Fatalf("unexpected job id")
+	}
+	if items[0].SourceURL == "" {
+		t.Fatalf("expected source url")
 	}
 	if len(items[0].Skills) != 2 {
 		t.Fatalf("expected 2 skills, got %d", len(items[0].Skills))

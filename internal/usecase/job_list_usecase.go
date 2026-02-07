@@ -26,6 +26,7 @@ type JobListItem struct {
 	Title       string
 	CompanyName string
 	Location    string
+	SourceURL   string
 	Description string
 	Skills      []string
 	PostedAt    *time.Time
@@ -185,6 +186,7 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 			Title:       r.Title,
 			CompanyName: r.Company,
 			Location:    r.Location,
+			SourceURL:   r.SourceURL,
 			Description: r.Description,
 			Skills:      jobSkills,
 			PostedAt:    r.PostedAt,

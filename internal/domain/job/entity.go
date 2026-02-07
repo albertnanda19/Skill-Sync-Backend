@@ -16,6 +16,7 @@ type Source struct {
 type Job struct {
 	ID             uuid.UUID
 	SourceID       *uuid.UUID
+	SourceURL      *string `json:"source_url"`
 	ExternalJobID  *string
 	Title          *string
 	Company        *string

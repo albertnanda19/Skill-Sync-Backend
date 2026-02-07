@@ -28,6 +28,7 @@ func (JobSeeder) Run(ctx context.Context, db database.DB) error {
 		"raw_description",
 		"posted_at",
 		"scraped_at",
+		"source_url",
 		"created_at",
 	); err != nil {
 		return err
@@ -122,12 +123,13 @@ func (JobSeeder) Run(ctx context.Context, db database.DB) error {
 		id := uuid.New()
 		externalID := buildExternalJobID(it.Title)
 
+		sourceURL := "https://www.linkedin.com/jobs/view/" + externalID
 		_, err = db.Exec(ctx,
 			`INSERT INTO jobs (
 				id, source_id, external_job_id, title, company, location, employment_type,
-				description, raw_description, posted_at, scraped_at
+				description, raw_description, posted_at, scraped_at, source_url
 			)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 			ON CONFLICT (source_id, external_job_id) DO NOTHING`,
 			id,
 			sourceID,
@@ -140,6 +142,7 @@ func (JobSeeder) Run(ctx context.Context, db database.DB) error {
 			it.Description,
 			now,
 			now,
+			sourceURL,
 		)
 		if err != nil {
 			continue

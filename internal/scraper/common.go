@@ -140,8 +140,8 @@ func insertRawJob(ctx context.Context, db database.DB, sourceID uuid.UUID, runID
 		_, err = db.Exec(ctx,
 			`INSERT INTO jobs (
 				id, source_id, external_job_id, title, company, location, employment_type,
-				description, raw_description, posted_at, scraped_at, url, is_active
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+				description, raw_description, posted_at, scraped_at, url, source_url, is_active
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 			ON CONFLICT (source_id, url) DO UPDATE SET
 				external_job_id = COALESCE(EXCLUDED.external_job_id, jobs.external_job_id),
 				title = COALESCE(EXCLUDED.title, jobs.title),
@@ -152,6 +152,7 @@ func insertRawJob(ctx context.Context, db database.DB, sourceID uuid.UUID, runID
 				raw_description = COALESCE(EXCLUDED.raw_description, jobs.raw_description),
 				posted_at = COALESCE(EXCLUDED.posted_at, jobs.posted_at),
 				scraped_at = COALESCE(EXCLUDED.scraped_at, jobs.scraped_at),
+				source_url = COALESCE(EXCLUDED.source_url, jobs.source_url),
 				is_active = EXCLUDED.is_active`,
 			uuid.New(),
 			sourceID,
@@ -165,14 +166,15 @@ func insertRawJob(ctx context.Context, db database.DB, sourceID uuid.UUID, runID
 			in.PostedAt,
 			scrapedAt,
 			nullableText(url),
+			nullableText(url),
 			in.IsActive,
 		)
 	} else {
 		_, err = db.Exec(ctx,
 			`INSERT INTO jobs (
 				id, source_id, external_job_id, title, company, location, employment_type,
-				description, raw_description, posted_at, scraped_at, url, is_active
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+				description, raw_description, posted_at, scraped_at, url, source_url, is_active
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 			ON CONFLICT (source_id, external_job_id) DO UPDATE SET
 				title = COALESCE(EXCLUDED.title, jobs.title),
 				company = COALESCE(EXCLUDED.company, jobs.company),
@@ -182,6 +184,7 @@ func insertRawJob(ctx context.Context, db database.DB, sourceID uuid.UUID, runID
 				raw_description = COALESCE(EXCLUDED.raw_description, jobs.raw_description),
 				posted_at = COALESCE(EXCLUDED.posted_at, jobs.posted_at),
 				scraped_at = COALESCE(EXCLUDED.scraped_at, jobs.scraped_at),
+				source_url = COALESCE(EXCLUDED.source_url, jobs.source_url),
 				is_active = EXCLUDED.is_active`,
 			uuid.New(),
 			sourceID,
@@ -194,6 +197,7 @@ func insertRawJob(ctx context.Context, db database.DB, sourceID uuid.UUID, runID
 			nullableText(in.RawDescription),
 			in.PostedAt,
 			scrapedAt,
+			nullableText(url),
 			nullableText(url),
 			in.IsActive,
 		)

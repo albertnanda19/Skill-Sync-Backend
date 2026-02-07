@@ -7,6 +7,7 @@ type JobListResponse struct {
 	Title       string    `json:"title"`
 	CompanyName string    `json:"company_name"`
 	Location    string    `json:"location"`
+	SourceURL   string    `json:"source_url"`
 	Description string    `json:"description"`
 	Skills      []string  `json:"skills"`
 	PostedDate  string    `json:"posted_date"`

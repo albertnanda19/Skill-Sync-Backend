@@ -84,6 +84,7 @@ func (h *JobsHandler) HandleListJobs(c fiber.Ctx) error {
 			Title:       titleClean,
 			CompanyName: strings.TrimSpace(companyClean),
 			Location:    strings.TrimSpace(locationClean),
+			SourceURL:   strings.TrimSpace(it.SourceURL),
 			Description: descClean,
 			Skills:      it.Skills,
 			PostedDate:  posted,

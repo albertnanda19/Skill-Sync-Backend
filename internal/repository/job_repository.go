@@ -70,6 +70,7 @@ type JobListRow struct {
 	Title       string
 	Company     string
 	Location    string
+	SourceURL   string
 	Description string
 	PostedAt    *time.Time
 }
@@ -149,6 +150,7 @@ func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobLis
 		COALESCE(j.title, ''),
 		COALESCE(j.company, ''),
 		COALESCE(j.location, ''),
+		COALESCE(j.source_url, j.url, ''),
 		COALESCE(j.description, ''),
 		j.posted_at
 		FROM jobs j
@@ -205,7 +207,7 @@ func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobLis
 	for rows.Next() {
 		var it JobListRow
 		var posted sql.NullTime
-		if err := rows.Scan(&it.ID, &it.Title, &it.Company, &it.Location, &it.Description, &posted); err != nil {
+		if err := rows.Scan(&it.ID, &it.Title, &it.Company, &it.Location, &it.SourceURL, &it.Description, &posted); err != nil {
 			return nil, err
 		}
 		if posted.Valid {
@@ -284,8 +286,8 @@ func (r *PostgresJobRepository) UpsertJobs(ctx context.Context, jobs []JobUpsert
 		_, err := tx.Exec(ctx,
 			`INSERT INTO jobs (
 				id, source_id, external_job_id, title, company, location, employment_type,
-				description, raw_description, posted_at, scraped_at, url, is_active
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+				description, raw_description, posted_at, scraped_at, url, source_url, is_active
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 			ON CONFLICT (source_id, url) DO NOTHING`,
 			uuid.New(),
 			sourceID,
@@ -298,6 +300,7 @@ func (r *PostgresJobRepository) UpsertJobs(ctx context.Context, jobs []JobUpsert
 			nullableText(j.RawDescription),
 			j.PostedAt,
 			scrapedAt,
+			nullableText(sourceURL),
 			nullableText(sourceURL),
 			isActive,
 		)

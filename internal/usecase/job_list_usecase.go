@@ -37,16 +37,20 @@ type JobListUsecase interface {
 	ListJobs(ctx context.Context, params JobListParams) ([]JobListItem, bool, error)
 }
 
+type freshnessEnsurer interface {
+	EnsureFresh(ctx context.Context, query, location string)
+}
+
 type JobList struct {
 	jobs      repository.JobRepository
 	jobSkills repository.JobSkillRepository
-	scraper   service.ScraperService
+	freshness freshnessEnsurer
 	cache     SearchCache
 	logger    *log.Logger
 }
 
-func NewJobListUsecase(jobs repository.JobRepository, jobSkills repository.JobSkillRepository, scraperSvc service.ScraperService, cache SearchCache, logger *log.Logger) *JobList {
-	return &JobList{jobs: jobs, jobSkills: jobSkills, scraper: scraperSvc, cache: cache, logger: logger}
+func NewJobListUsecase(jobs repository.JobRepository, jobSkills repository.JobSkillRepository, freshness freshnessEnsurer, cache SearchCache, logger *log.Logger) *JobList {
+	return &JobList{jobs: jobs, jobSkills: jobSkills, freshness: freshness, cache: cache, logger: logger}
 }
 
 func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobListItem, bool, error) {
@@ -90,6 +94,11 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 	cacheKey := ""
 	lockKey := ""
 	if cacheable {
+		if u != nil && u.freshness != nil {
+			u.freshness.EnsureFresh(ctx, params.Title, params.Location)
+		}
+	}
+	if cacheable {
 		cacheKey = JobsSearchCacheKey(params)
 		lockKey = JobsSearchLockKey(cacheKey)
 
@@ -131,19 +140,6 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 			}
 			if u.logger != nil {
 				u.logger.Printf("[Jobs] Lock wait fallback: %s", lockKey)
-			}
-		}
-	}
-
-	if u != nil && u.scraper != nil {
-		if cacheable {
-			jobs, err := u.scraper.Search(ctx, sp)
-			if err != nil {
-				partial = true
-			} else {
-				if err := u.jobs.UpsertJobs(ctx, jobs); err != nil {
-					partial = true
-				}
 			}
 		}
 	}

@@ -23,6 +23,7 @@ type JobRepository interface {
 	ListJobs(ctx context.Context, limit, offset int) ([]Job, error)
 	ListJobsForListing(ctx context.Context, f JobListFilter) ([]JobListRow, error)
 	ListActiveJobsWithoutSkills(ctx context.Context, limit, offset int) ([]JobForSkillExtraction, error)
+	GetLatestScrapedAt(ctx context.Context, f JobFreshnessFilter) (time.Time, error)
 	UpsertJobs(ctx context.Context, jobs []JobUpsert) error
 }
 
@@ -64,6 +65,11 @@ type JobListFilter struct {
 	Skills        []string
 	Limit         int
 	Offset        int
+}
+
+type JobFreshnessFilter struct {
+	Title    string
+	Location string
 }
 
 type JobListRow struct {
@@ -243,6 +249,41 @@ func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobLis
 
 func itoa(i int) string {
 	return strconv.Itoa(i)
+}
+
+func (r *PostgresJobRepository) GetLatestScrapedAt(ctx context.Context, f JobFreshnessFilter) (time.Time, error) {
+	if r == nil || r.db == nil {
+		return time.Time{}, errors.New("nil repository/db")
+	}
+
+	q := strings.Builder{}
+	q.WriteString(`SELECT MAX(j.scraped_at) FROM jobs j WHERE 1=1`)
+
+	args := make([]any, 0, 2)
+	argN := 1
+	if strings.TrimSpace(f.Title) != "" {
+		q.WriteString(" AND j.title ILIKE $" + itoa(argN))
+		args = append(args, "%"+strings.TrimSpace(f.Title)+"%")
+		argN++
+	}
+	if strings.TrimSpace(f.Location) != "" {
+		q.WriteString(" AND j.location ILIKE $" + itoa(argN))
+		args = append(args, "%"+strings.TrimSpace(f.Location)+"%")
+		argN++
+	}
+
+	row := r.db.QueryRow(ctx, q.String(), args...)
+	var latest sql.NullTime
+	if err := row.Scan(&latest); err != nil {
+		if err == sql.ErrNoRows || errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	if !latest.Valid {
+		return time.Time{}, nil
+	}
+	return latest.Time, nil
 }
 
 func (r *PostgresJobRepository) UpsertJobs(ctx context.Context, jobs []JobUpsert) error {

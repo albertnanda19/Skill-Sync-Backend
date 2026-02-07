@@ -11,10 +11,11 @@ import (
 	"skill-sync/internal/delivery/http/middleware"
 	"skill-sync/internal/infrastructure/cache"
 	"skill-sync/internal/infrastructure/persistence/postgres"
+	"skill-sync/internal/infrastructure/scraper"
 	"skill-sync/internal/pkg/jwt"
 	"skill-sync/internal/repository"
-	"skill-sync/internal/service"
 	"skill-sync/internal/usecase"
+	jobuc "skill-sync/internal/usecase/job"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -45,19 +46,15 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 
 	logger := log.Default()
 	redisCache := cache.NewRedis(logger)
-	scraperSvc := service.NewScraperService(
-		logger,
-		service.NewJobStreetScraper(),
-		service.NewDevtoScraper(),
-		service.NewGlintsScraper(),
-	)
+	scraperClient := scraper.NewScraperClient(cfg.ScraperBaseURL, logger)
+	freshnessSvc := jobuc.NewFreshnessService(jobRepo, scraperClient, redisCache, logger, cfg.SearchFreshnessMinutes)
 	authUC := usecase.NewAuthUsecase(userRepo, jwtSvc)
 	userUC := usecase.NewUserUsecase(userRepo)
 	userSkillUC := usecase.NewUserSkillUsecase(userSkillRepo)
 	skillUC := usecase.NewSkillUsecase(skillRepo)
 	jobRecommendationUC := usecase.NewJobRecommendationUsecase(jobRepo, jobSkillRepo, userSkillRepo)
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
-	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, scraperSvc, redisCache, logger)
+	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, freshnessSvc, redisCache, logger)
 	pipelineStatusUC := usecase.NewPipelineStatusUsecase(pipelineStatusRepo, nil)
 	pipelineUC := usecase.NewPipelineUsecase(pipelineRepo, db, redisCache)
 

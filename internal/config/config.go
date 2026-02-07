@@ -13,6 +13,9 @@ type Config struct {
 	App      AppConfig
 	Database DatabaseConfig
 	JWT      JWTConfig
+
+	SearchFreshnessMinutes int
+	ScraperBaseURL         string
 }
 
 type AppConfig struct {
@@ -109,11 +112,29 @@ func Load() (Config, error) {
 		RefreshExpiresIn: reqDuration("JWT_REFRESH_EXPIRES_IN"),
 	}
 
+	cfg.SearchFreshnessMinutes = optInt("SEARCH_FRESHNESS_MINUTES", 30)
+	cfg.ScraperBaseURL = opt("SCRAPER_BASE_URL")
+
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("%w: %s", errMissingRequiredEnv, strings.Join(missing, ", "))
 	}
 
 	return cfg, nil
+}
+
+func optInt(key string, defaultVal int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return defaultVal
+	}
+	if v <= 0 {
+		return defaultVal
+	}
+	return v
 }
 
 func optInt32(key string) int32 {

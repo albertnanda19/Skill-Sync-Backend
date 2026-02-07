@@ -18,6 +18,9 @@ type mockJobRepo struct {
 
 func (m mockJobRepo) ExistsByID(context.Context, uuid.UUID) (bool, error)          { return false, nil }
 func (m mockJobRepo) ListJobs(context.Context, int, int) ([]repository.Job, error) { return nil, nil }
+func (m mockJobRepo) GetLatestScrapedAt(context.Context, repository.JobFreshnessFilter) (time.Time, error) {
+	return time.Time{}, nil
+}
 func (m mockJobRepo) ListActiveJobsWithoutSkills(context.Context, int, int) ([]repository.JobForSkillExtraction, error) {
 	return nil, nil
 }

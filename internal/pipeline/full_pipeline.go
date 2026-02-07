@@ -2,23 +2,16 @@ package pipeline
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"skill-sync/internal/repository"
-	"skill-sync/internal/scraper"
 	"skill-sync/internal/usecase"
 
 	"github.com/google/uuid"
 )
 
 type FullPipeline struct {
-	jobStreet *scraper.JobStreetScraper
-	devto     *scraper.DevtoScraper
-
 	skillExtraction *JobSkillExtractionPipeline
 
 	matchingV2 usecase.MatchingUsecaseV2
@@ -47,8 +40,6 @@ type FullPipelineParams struct {
 }
 
 func NewFullPipeline(
-	jobStreet *scraper.JobStreetScraper,
-	devto *scraper.DevtoScraper,
 	skillExtraction *JobSkillExtractionPipeline,
 	matchingV2 usecase.MatchingUsecaseV2,
 	recommend usecase.JobRecommendationUsecase,
@@ -61,8 +52,6 @@ func NewFullPipeline(
 		logger = log.Default()
 	}
 	return &FullPipeline{
-		jobStreet:       jobStreet,
-		devto:           devto,
 		skillExtraction: skillExtraction,
 		matchingV2:      matchingV2,
 		recommend:       recommend,
@@ -118,88 +107,9 @@ func (p *FullPipeline) RunScraper(ctx context.Context, params FullPipelineParams
 	if p == nil {
 		return nil
 	}
-
-	stepStart := time.Now()
-	p.log.Printf("pipeline=full step=scraper status=started")
-	defer func() {
-		p.log.Printf("pipeline=full step=scraper status=finished duration=%s", time.Since(stepStart))
-	}()
-
-	var wg sync.WaitGroup
-	errCh := make(chan error, 2)
-
-	if p.jobStreet != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			pages := params.JobStreetPages
-			workers := params.JobStreetWorkers
-			if workers <= 0 {
-				workers = 5
-			}
-
-			var lastErr error
-			for attempt := 1; attempt <= 3; attempt++ {
-				if ctx.Err() != nil {
-					errCh <- ctx.Err()
-					return
-				}
-				err := p.jobStreet.Scrape(ctx, "", pages, workers)
-				if err == nil {
-					p.log.Printf("pipeline=full step=scraper source=jobstreet status=ok pages=%d workers=%d attempts=%d", pages, workers, attempt)
-					return
-				}
-				lastErr = err
-				p.log.Printf("pipeline=full step=scraper source=jobstreet status=retry attempt=%d err=%v", attempt, err)
-				time.Sleep(time.Duration(200*attempt) * time.Millisecond)
-			}
-			errCh <- fmt.Errorf("jobstreet scrape failed: %w", lastErr)
-		}()
-	}
-
-	if p.devto != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			pages := params.DevtoPages
-			workers := params.DevtoWorkers
-			if workers <= 0 {
-				workers = 5
-			}
-
-			var lastErr error
-			for attempt := 1; attempt <= 3; attempt++ {
-				if ctx.Err() != nil {
-					errCh <- ctx.Err()
-					return
-				}
-				err := p.devto.Scrape(ctx, pages, workers)
-				if err == nil {
-					p.log.Printf("pipeline=full step=scraper source=devto status=ok pages=%d workers=%d attempts=%d", pages, workers, attempt)
-					return
-				}
-				lastErr = err
-				p.log.Printf("pipeline=full step=scraper source=devto status=retry attempt=%d err=%v", attempt, err)
-				time.Sleep(time.Duration(200*attempt) * time.Millisecond)
-			}
-			errCh <- fmt.Errorf("devto scrape failed: %w", lastErr)
-		}()
-	}
-
-	wg.Wait()
-	close(errCh)
-
-	var errs []error
-	for err := range errCh {
-		if err == nil || errors.Is(err, context.Canceled) {
-			continue
-		}
-		errs = append(errs, err)
-	}
-	if len(errs) == 0 {
-		return nil
-	}
-	return errors.Join(errs...)
+	_ = ctx
+	_ = params
+	return nil
 }
 
 func (p *FullPipeline) RunSkillExtraction(ctx context.Context, params FullPipelineParams) error {

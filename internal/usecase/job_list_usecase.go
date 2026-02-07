@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"skill-sync/internal/repository"
+	"skill-sync/internal/search"
 	"skill-sync/internal/service"
 
 	"github.com/google/uuid"
@@ -83,6 +84,8 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 		Offset:      offset,
 	}
 
+	qctx := search.ProcessQuery(params.Title)
+
 	cacheable := sp.HasFilter()
 	cacheKey := ""
 	lockKey := ""
@@ -145,16 +148,30 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 		}
 	}
 
-	rows, err := u.jobs.ListJobsForListing(ctx, repository.JobListFilter{
-		Title:       params.Title,
-		CompanyName: params.CompanyName,
-		Location:    params.Location,
-		Skills:      skills,
-		Limit:       limit,
-		Offset:      offset,
-	})
+	f := repository.JobListFilter{
+		Title:         params.Title,
+		TitleVariants: qctx.Variants,
+		CompanyName:   params.CompanyName,
+		Location:      params.Location,
+		Skills:        skills,
+		Limit:         limit,
+		Offset:        offset,
+	}
+	rows, err := u.jobs.ListJobsForListing(ctx, f)
 	if err != nil {
 		return nil, partial, ErrInternal
+	}
+
+	if len(rows) < 5 {
+		fb := search.FallbackFirstWord(qctx.Normalized)
+		if fb != "" && fb != qctx.Normalized {
+			fbCtx := search.ProcessQuery(fb)
+			f.TitleVariants = fbCtx.Variants
+			rows2, err2 := u.jobs.ListJobsForListing(ctx, f)
+			if err2 == nil {
+				rows = rows2
+			}
+		}
 	}
 
 	jobIDs := make([]uuid.UUID, 0, len(rows))

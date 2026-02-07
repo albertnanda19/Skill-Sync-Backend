@@ -57,12 +57,13 @@ type JobForSkillExtraction struct {
 }
 
 type JobListFilter struct {
-	Title       string
-	CompanyName string
-	Location    string
-	Skills      []string
-	Limit       int
-	Offset      int
+	Title         string
+	TitleVariants []string
+	CompanyName   string
+	Location      string
+	Skills        []string
+	Limit         int
+	Offset        int
 }
 
 type JobListRow struct {
@@ -159,7 +160,21 @@ func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobLis
 	args := make([]any, 0, 6)
 	argN := 1
 
-	if strings.TrimSpace(f.Title) != "" {
+	if len(f.TitleVariants) > 0 {
+		patterns := make([]string, 0, len(f.TitleVariants))
+		for _, t := range f.TitleVariants {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			patterns = append(patterns, "%"+t+"%")
+		}
+		if len(patterns) > 0 {
+			base.WriteString(" AND j.title ILIKE ANY($" + itoa(argN) + ")")
+			args = append(args, patterns)
+			argN++
+		}
+	} else if strings.TrimSpace(f.Title) != "" {
 		base.WriteString(" AND j.title ILIKE $" + itoa(argN))
 		args = append(args, "%"+strings.TrimSpace(f.Title)+"%")
 		argN++

@@ -71,9 +71,11 @@ type JobListRow struct {
 	Title       string
 	Company     string
 	Location    string
+	Source      string
 	SourceURL   string
 	Description string
 	PostedAt    *time.Time
+	CreatedAt   time.Time
 }
 
 type PostgresJobRepository struct {
@@ -151,9 +153,11 @@ func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobLis
 		COALESCE(j.title, ''),
 		COALESCE(j.company, ''),
 		COALESCE(j.location, ''),
+		COALESCE(j.source, 'unknown'),
 		COALESCE(j.source_url, j.url, ''),
 		COALESCE(j.description, ''),
-		j.posted_at
+		j.posted_at,
+		j.created_at
 		FROM jobs j
 		WHERE 1=1`)
 
@@ -222,7 +226,7 @@ func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobLis
 	for rows.Next() {
 		var it JobListRow
 		var posted sql.NullTime
-		if err := rows.Scan(&it.ID, &it.Title, &it.Company, &it.Location, &it.SourceURL, &it.Description, &posted); err != nil {
+		if err := rows.Scan(&it.ID, &it.Title, &it.Company, &it.Location, &it.Source, &it.SourceURL, &it.Description, &posted, &it.CreatedAt); err != nil {
 			return nil, err
 		}
 		if posted.Valid {

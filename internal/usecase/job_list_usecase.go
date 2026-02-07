@@ -174,6 +174,40 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 		}
 	}
 
+	if len(rows) > 0 {
+		rankInput := make([]search.Job, 0, len(rows))
+		for i := range rows {
+			r := rows[i]
+			rankInput = append(rankInput, search.Job{
+				OriginalIndex: i,
+				ID:            r.ID,
+				Title:         r.Title,
+				CompanyName:   r.Company,
+				Location:      r.Location,
+				Description:   r.Description,
+				JobURL:        r.SourceURL,
+				Source:        r.Source,
+				CreatedAt:     r.CreatedAt,
+				PostedAt:      r.PostedAt,
+			})
+		}
+
+		ranked := search.RankJobs(rankInput, qctx.Variants)
+		if len(ranked) == len(rows) {
+			ordered := make([]repository.JobListRow, 0, len(rows))
+			for _, it := range ranked {
+				idx := it.OriginalIndex
+				if idx < 0 || idx >= len(rows) {
+					continue
+				}
+				ordered = append(ordered, rows[idx])
+			}
+			if len(ordered) == len(rows) {
+				rows = ordered
+			}
+		}
+	}
+
 	jobIDs := make([]uuid.UUID, 0, len(rows))
 	for _, r := range rows {
 		if r.ID == uuid.Nil {

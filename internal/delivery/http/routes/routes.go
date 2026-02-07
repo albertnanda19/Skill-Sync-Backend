@@ -6,6 +6,7 @@ import (
 	"skill-sync/internal/database"
 	"skill-sync/internal/delivery/http/handler"
 	"skill-sync/internal/infrastructure/cache"
+	"skill-sync/internal/ws"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -24,6 +25,12 @@ func (r *Registry) Register(app *fiber.App) {
 	if app == nil {
 		return
 	}
+
+	wsHub := ws.NewHub(log.Default())
+	ws.SetDefaultHub(wsHub)
+	go wsHub.Run()
+	wsHandler := ws.NewHandler(wsHub, log.Default())
+	app.Get("/ws/jobs", wsHandler.HandleJobsWS)
 
 	r.registerHealth(app)
 	r.registerInternal(app)

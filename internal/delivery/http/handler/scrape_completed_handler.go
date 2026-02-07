@@ -8,6 +8,7 @@ import (
 
 	"skill-sync/internal/config"
 	"skill-sync/internal/delivery/http/middleware"
+	"skill-sync/internal/ws"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -76,6 +77,11 @@ func (h *ScrapeCompletedHandler) HandleScrapeCompleted(c fiber.Ctx) error {
 
 	if h.logger != nil {
 		h.logger.Printf("Cache invalidated | keyword=%s", req.Keyword)
+	}
+
+	ws.NotifyJobsUpdated(req.Keyword, req.Source)
+	if h.logger != nil {
+		h.logger.Printf("WS notify | type=jobs_updated keyword=%s source=%s", req.Keyword, req.Source)
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{

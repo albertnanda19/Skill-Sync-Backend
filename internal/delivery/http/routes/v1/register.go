@@ -30,6 +30,8 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 
 	authMw := middleware.NewAuthMiddleware(jwtSvc)
 
+	skillRepo := repository.NewPostgresSkillRepository(db)
+
 	userRepo := postgres.NewUserRepository(db)
 	userSkillRepo := repository.NewPostgresUserSkillRepository(db)
 	jobRepo := repository.NewPostgresJobRepository(db)
@@ -39,6 +41,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	authUC := usecase.NewAuthUsecase(userRepo, jwtSvc)
 	userUC := usecase.NewUserUsecase(userRepo)
 	userSkillUC := usecase.NewUserSkillUsecase(userSkillRepo)
+	skillUC := usecase.NewSkillUsecase(skillRepo)
 	jobRecommendationUC := usecase.NewJobRecommendationUsecase(jobRepo, jobSkillRepo, userSkillRepo)
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
 	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo)
@@ -47,6 +50,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	authHandler := handler.NewAuthHandler(authUC)
 	userHandler := handler.NewUserHandler(userUC)
 	userSkillHandler := handler.NewUserSkillHandler(userSkillUC)
+	skillHandler := handler.NewSkillHandler(skillUC)
 	jobRecommendationHandler := handler.NewJobRecommendationHandler(jobRecommendationUC)
 	matchV2Handler := handler.NewMatchV2Handler(matchingV2UC)
 	jobsHandler := handler.NewJobsHandler(jobListUC)
@@ -54,6 +58,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 
 	authGroup := r.Group("/auth")
 	authHandler.RegisterRoutes(authGroup)
+	skillHandler.RegisterRoutes(r)
 
 	protected := r.Group("", authMw.Middleware())
 

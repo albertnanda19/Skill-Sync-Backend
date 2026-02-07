@@ -14,6 +14,7 @@ import (
 	"skill-sync/internal/infrastructure/scraper"
 	"skill-sync/internal/pkg/jwt"
 	"skill-sync/internal/repository"
+	searchctl "skill-sync/internal/search/controller"
 	"skill-sync/internal/usecase"
 	jobuc "skill-sync/internal/usecase/job"
 
@@ -47,6 +48,8 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	logger := log.Default()
 	redisCache := cache.NewRedis(logger)
 	scraperClient := scraper.NewScraperClient(cfg.ScraperBaseURL, logger)
+	pythonClient := searchctl.NewPythonClient(cfg.ScraperBaseURL, logger)
+	triggerCtl := searchctl.NewTriggerController(redisCache, pythonClient, cfg, logger)
 	freshnessSvc := jobuc.NewFreshnessService(jobRepo, scraperClient, redisCache, logger, cfg.SearchFreshnessMinutes)
 	authUC := usecase.NewAuthUsecase(userRepo, jwtSvc)
 	userUC := usecase.NewUserUsecase(userRepo)
@@ -54,7 +57,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	skillUC := usecase.NewSkillUsecase(skillRepo)
 	jobRecommendationUC := usecase.NewJobRecommendationUsecase(jobRepo, jobSkillRepo, userSkillRepo)
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
-	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, freshnessSvc, redisCache, logger)
+	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, freshnessSvc, triggerCtl, redisCache, logger)
 	pipelineStatusUC := usecase.NewPipelineStatusUsecase(pipelineStatusRepo, nil)
 	pipelineUC := usecase.NewPipelineUsecase(pipelineRepo, db, redisCache)
 

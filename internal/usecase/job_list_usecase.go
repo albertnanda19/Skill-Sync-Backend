@@ -41,16 +41,21 @@ type freshnessEnsurer interface {
 	EnsureFresh(ctx context.Context, query, location string)
 }
 
+type searchTriggerController interface {
+	HandleSearchTrigger(ctx context.Context, keyword string)
+}
+
 type JobList struct {
 	jobs      repository.JobRepository
 	jobSkills repository.JobSkillRepository
 	freshness freshnessEnsurer
+	trigger   searchTriggerController
 	cache     SearchCache
 	logger    *log.Logger
 }
 
-func NewJobListUsecase(jobs repository.JobRepository, jobSkills repository.JobSkillRepository, freshness freshnessEnsurer, cache SearchCache, logger *log.Logger) *JobList {
-	return &JobList{jobs: jobs, jobSkills: jobSkills, freshness: freshness, cache: cache, logger: logger}
+func NewJobListUsecase(jobs repository.JobRepository, jobSkills repository.JobSkillRepository, freshness freshnessEnsurer, trigger searchTriggerController, cache SearchCache, logger *log.Logger) *JobList {
+	return &JobList{jobs: jobs, jobSkills: jobSkills, freshness: freshness, trigger: trigger, cache: cache, logger: logger}
 }
 
 func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobListItem, bool, error) {
@@ -118,6 +123,12 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 			}
 			if u.logger != nil {
 				u.logger.Printf("[Jobs] Cache MISS: %s", cacheKey)
+			}
+			if u != nil && u.trigger != nil {
+				kw := strings.TrimSpace(params.Title)
+				if kw != "" {
+					go u.trigger.HandleSearchTrigger(context.Background(), kw)
+				}
 			}
 		}
 	}

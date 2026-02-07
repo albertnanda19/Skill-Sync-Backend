@@ -18,6 +18,9 @@ type Config struct {
 
 	SearchFreshnessMinutes int
 	ScraperBaseURL         string
+
+	ScrapeCooldownSeconds int
+	ScrapeLockTTLSeconds  int
 }
 
 type AppConfig struct {
@@ -118,6 +121,8 @@ func Load() (Config, error) {
 
 	cfg.SearchFreshnessMinutes = optInt("SEARCH_FRESHNESS_MINUTES", 30)
 	cfg.ScraperBaseURL = opt("SCRAPER_BASE_URL")
+	cfg.ScrapeCooldownSeconds = optInt("SCRAPE_COOLDOWN_SECONDS", 300)
+	cfg.ScrapeLockTTLSeconds = optInt("SCRAPE_LOCK_TTL_SECONDS", 300)
 
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("%w: %s", errMissingRequiredEnv, strings.Join(missing, ", "))

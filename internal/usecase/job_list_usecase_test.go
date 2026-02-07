@@ -46,7 +46,7 @@ func (m mockJobSkillRepo) FindByJobIDs(context.Context, []uuid.UUID) (map[uuid.U
 }
 
 func TestJobListUsecase_ListJobs_InvalidLimit(t *testing.T) {
-	uc := NewJobListUsecase(mockJobRepo{}, mockJobSkillRepo{}, nil, nil, nil)
+	uc := NewJobListUsecase(mockJobRepo{}, mockJobSkillRepo{}, nil, nil, nil, nil)
 	_, _, err := uc.ListJobs(context.Background(), JobListParams{Limit: -1, Offset: 0})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
@@ -70,6 +70,7 @@ func TestJobListUsecase_ListJobs_Success(t *testing.T) {
 			{SkillID: uuid.New(), SkillName: "Go", ImportanceWeight: 5},
 			{SkillID: uuid.New(), SkillName: "PostgreSQL", ImportanceWeight: 4},
 		}}},
+		nil,
 		nil,
 		nil,
 		nil,

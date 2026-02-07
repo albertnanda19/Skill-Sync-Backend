@@ -101,6 +101,25 @@ func (r *Redis) GetJSON(ctx context.Context, key string, out any) (bool, error) 
 	return true, nil
 }
 
+func (r *Redis) GetString(ctx context.Context, key string) (string, bool, error) {
+	if r.isUnavailable() {
+		return "", false, nil
+	}
+	v, err := r.client.Get(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", false, nil
+		}
+		r.warnUnavailableOnce(err)
+		return "", false, err
+	}
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", false, nil
+	}
+	return v, true, nil
+}
+
 func (r *Redis) SetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
 	if r.isUnavailable() {
 		return nil
@@ -113,6 +132,18 @@ func (r *Redis) SetJSON(ctx context.Context, key string, value any, ttl time.Dur
 		return err
 	}
 	if err := r.client.Set(ctx, key, b, ttl).Err(); err != nil {
+		r.warnUnavailableOnce(err)
+		return err
+	}
+	return nil
+}
+
+func (r *Redis) SetString(ctx context.Context, key string, value string, ttl time.Duration) error {
+	if r.isUnavailable() {
+		return nil
+	}
+	value = strings.TrimSpace(value)
+	if err := r.client.Set(ctx, key, value, ttl).Err(); err != nil {
 		r.warnUnavailableOnce(err)
 		return err
 	}
@@ -139,6 +170,21 @@ func (r *Redis) DeleteByPattern(ctx context.Context, pattern string) error {
 		return nil
 	}
 	return deleteByPattern(ctx, r.client, r.logger, pattern)
+}
+
+func (r *Redis) Publish(ctx context.Context, channel string, payload string) error {
+	if r.isUnavailable() {
+		return nil
+	}
+	channel = strings.TrimSpace(channel)
+	if channel == "" {
+		return nil
+	}
+	if err := r.client.Publish(ctx, channel, payload).Err(); err != nil {
+		r.warnUnavailableOnce(err)
+		return err
+	}
+	return nil
 }
 
 func (r *Redis) InvalidateCacheByKeyword(ctx context.Context, keyword string) error {

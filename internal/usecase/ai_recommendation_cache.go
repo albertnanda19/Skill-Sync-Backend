@@ -34,6 +34,10 @@ func NewAIRecommendationCache(cache icache.Cache) *AIRecommendationCache {
 }
 
 func BuildUserProfileHash(userID uuid.UUID, skills []string, updatedAt time.Time) string {
+	return BuildUserProfileHashWithRoles(userID, skills, nil, updatedAt)
+}
+
+func BuildUserProfileHashWithRoles(userID uuid.UUID, skills []string, roles []string, updatedAt time.Time) string {
 	clean := make([]string, 0, len(skills))
 	for _, s := range skills {
 		s = strings.TrimSpace(s)
@@ -44,7 +48,48 @@ func BuildUserProfileHash(userID uuid.UUID, skills []string, updatedAt time.Time
 	}
 	sort.Strings(clean)
 	joined := strings.Join(clean, ",")
-	payload := userID.String() + "|" + joined + "|" + updatedAt.UTC().Format(time.RFC3339Nano)
+
+	roleClean := make([]string, 0, len(roles))
+	for _, r := range roles {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
+		}
+		roleClean = append(roleClean, r)
+	}
+	sort.Strings(roleClean)
+	rolesJoined := strings.Join(roleClean, ",")
+
+	payload := userID.String() + "|" + joined + "|" + rolesJoined + "|" + updatedAt.UTC().Format(time.RFC3339Nano)
+	sum := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(sum[:])
+}
+
+func BuildUserProfileHashWithContext(userID uuid.UUID, skillSignals []string, roles []string, experienceLevel string, updatedAt time.Time) string {
+	cleanSignals := make([]string, 0, len(skillSignals))
+	for _, s := range skillSignals {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		cleanSignals = append(cleanSignals, s)
+	}
+	sort.Strings(cleanSignals)
+	signalsJoined := strings.Join(cleanSignals, ",")
+
+	roleClean := make([]string, 0, len(roles))
+	for _, r := range roles {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
+		}
+		roleClean = append(roleClean, r)
+	}
+	sort.Strings(roleClean)
+	rolesJoined := strings.Join(roleClean, ",")
+
+	experienceLevel = strings.TrimSpace(experienceLevel)
+	payload := userID.String() + "|" + signalsJoined + "|" + rolesJoined + "|" + experienceLevel + "|" + updatedAt.UTC().Format(time.RFC3339Nano)
 	sum := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(sum[:])
 }

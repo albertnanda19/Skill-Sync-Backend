@@ -39,6 +39,11 @@ type AIRecommendation struct {
 	cache      *AIRecommendationCache
 }
 
+type skillContext struct {
+	Proficiency int
+	Years       int
+}
+
 func NewAIRecommendationUsecase(jobs repository.JobRepository, userSkills repository.UserSkillRepository, users user.Repository, provider ai.Provider, cache *AIRecommendationCache) *AIRecommendation {
 	return &AIRecommendation{jobs: jobs, userSkills: userSkills, users: users, provider: provider, cache: cache}
 }
@@ -70,10 +75,19 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 
 	// Load user profile context
 	email := ""
+	preferredRoles := make([]string, 0)
+	experienceLevel := ""
 	if u.users != nil {
 		usr, err := u.users.GetUserByID(ctx, userID)
 		if err == nil {
 			email = strings.TrimSpace(usr.Email)
+		}
+		prof, perr := u.users.GetProfileByUserID(ctx, userID)
+		if perr == nil {
+			preferredRoles = uniqueStrings(prof.PreferredRoles)
+			if prof.ExperienceLevel != nil {
+				experienceLevel = strings.TrimSpace(*prof.ExperienceLevel)
+			}
 		}
 	}
 
@@ -92,6 +106,7 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 		skillsUpdatedAt = time.Time{}
 	}
 	skillKeywords := make([]string, 0, len(skills))
+	skillSignals := make([]string, 0, len(skills))
 	if len(skills) > 0 {
 		names := make([]string, 0, len(skills))
 		for _, s := range skills {
@@ -101,10 +116,20 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 			n := strings.TrimSpace(s.SkillName)
 			names = append(names, n)
 			skillKeywords = append(skillKeywords, n)
+			skillSignals = append(skillSignals, buildSkillSignal(n, s.ProficiencyLevel, s.YearsExperience))
 		}
 		if len(names) > 0 {
 			profileBits = append(profileBits, "Skills: "+strings.Join(uniqueStrings(names), ", "))
 		}
+	}
+	if len(skillSignals) > 0 {
+		profileBits = append(profileBits, "Skill Context: "+strings.Join(uniqueStrings(skillSignals), ", "))
+	}
+	if len(preferredRoles) > 0 {
+		profileBits = append(profileBits, "Preferred Roles: "+strings.Join(uniqueStrings(preferredRoles), ", "))
+	}
+	if experienceLevel != "" {
+		profileBits = append(profileBits, "Experience Level: "+experienceLevel)
 	}
 
 	userProfile := strings.Join(profileBits, "\n")
@@ -122,7 +147,7 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 	cacheKey := ""
 	useCache := u.cache != nil && IsAICacheEnabled()
 	if useCache {
-		hash := BuildUserProfileHash(userID, userSkills, skillsUpdatedAt)
+		hash := BuildUserProfileHashWithContext(userID, skillSignals, preferredRoles, experienceLevel, skillsUpdatedAt)
 		cacheKey = BuildAIRecommendationCacheKey(userID, hash)
 		if cached, lastSeen, lastSeenGlobal, generatedAt, hit := u.cache.GetFromCache(ctx, cacheKey); hit {
 			if g := AICacheRefreshGrace(); g > 0 && !generatedAt.IsZero() && time.Since(generatedAt) <= g {
@@ -141,7 +166,11 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 			}
 
 			// There are global new jobs; only re-rank newly added relevant jobs and merge.
-			newRows, nerr := u.jobs.ListJobsSkillGroundedCandidatesSince(ctx, patterns, lastSeen, maxCandidates)
+			rolePatterns := buildRolePatterns(preferredRoles)
+			newRows, nerr := u.jobs.ListJobsSkillGroundedCandidatesSinceWithRoles(ctx, patterns, rolePatterns, lastSeen, maxCandidates)
+			if len(rolePatterns) == 0 {
+				newRows, nerr = u.jobs.ListJobsSkillGroundedCandidatesSince(ctx, patterns, lastSeen, maxCandidates)
+			}
 			if nerr == nil && len(newRows) == 0 {
 				// Global changed but no new relevant candidates; just advance global marker.
 				_ = u.cache.SaveToCache(ctx, userID, cacheKey, cached, lastSeen, maxGlobal)
@@ -169,7 +198,8 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 
 			// We have new rows; rerank only them.
 			backendProfile := isBackendProfile(userSkills)
-			newItems, newLastSeen, aerr := u.rankRowsWithAI(ctx, userProfile, userSkills, primarySkill, backendProfile, newRows, topK)
+			skillMeta := buildSkillMeta(skills)
+			newItems, newLastSeen, aerr := u.rankRowsWithAI(ctx, userProfile, userSkills, skillMeta, primarySkill, backendProfile, newRows, topK)
 			if aerr != nil {
 				// If AI fails for deltas, still return cached.
 				log.Printf("ai_incremental_failed=true ai_cache_key=%s err=%v", cacheKey, aerr)
@@ -196,7 +226,9 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 	}
 
 	backendProfile := isBackendProfile(userSkills)
-	rows, scanned, err := u.scanSkillGroundedCandidates(ctx, patterns, userSkills, primarySkill, backendProfile)
+	skillMeta := buildSkillMeta(skills)
+	rolePatterns := buildRolePatterns(preferredRoles)
+	rows, scanned, err := u.scanSkillGroundedCandidates(ctx, patterns, rolePatterns, userSkills, primarySkill, backendProfile)
 	if err != nil {
 		return u.fallbackRecentJobs(ctx, skillKeywords)
 	}
@@ -204,7 +236,7 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 		return []AIJobRecommendationItem{}, nil
 	}
 	log.Printf("ai_candidates_scan_complete=true total_jobs_scanned=%d candidate_pool=%d", scanned, len(rows))
-	out, lastSeen, err := u.rankRowsWithAI(ctx, userProfile, userSkills, primarySkill, backendProfile, rows, topK)
+	out, lastSeen, err := u.rankRowsWithAI(ctx, userProfile, userSkills, skillMeta, primarySkill, backendProfile, rows, topK)
 	if err != nil {
 		return u.fallbackRecentJobs(ctx, skillKeywords)
 	}
@@ -216,7 +248,7 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 	return out, nil
 }
 
-func (u *AIRecommendation) scanSkillGroundedCandidates(ctx context.Context, patterns []string, userSkills []string, primarySkill string, backendProfile bool) ([]repository.JobListRow, int, error) {
+func (u *AIRecommendation) scanSkillGroundedCandidates(ctx context.Context, patterns []string, rolePatterns []string, userSkills []string, primarySkill string, backendProfile bool) ([]repository.JobListRow, int, error) {
 	if u == nil || u.jobs == nil {
 		return nil, 0, ErrInternal
 	}
@@ -269,7 +301,10 @@ func (u *AIRecommendation) scanSkillGroundedCandidates(ctx context.Context, patt
 			limit = remain
 		}
 
-		page, err := u.jobs.ListJobsSkillGroundedCandidatesPage(ctx, patterns, cursorCreatedAt, cursorID, limit)
+		page, err := u.jobs.ListJobsSkillGroundedCandidatesPageWithRoles(ctx, patterns, rolePatterns, cursorCreatedAt, cursorID, limit)
+		if len(rolePatterns) == 0 {
+			page, err = u.jobs.ListJobsSkillGroundedCandidatesPage(ctx, patterns, cursorCreatedAt, cursorID, limit)
+		}
 		if err != nil {
 			return nil, scanned, err
 		}
@@ -279,7 +314,7 @@ func (u *AIRecommendation) scanSkillGroundedCandidates(ctx context.Context, patt
 		scanned += len(page)
 
 		for _, r := range page {
-			ss, _ := structuredScoreJob(r, userSkills, primarySkill, backendProfile)
+			ss, _ := structuredScoreJob(r, userSkills, nil, primarySkill, backendProfile)
 			if ss <= 0 {
 				continue
 			}
@@ -316,7 +351,7 @@ func (u *AIRecommendation) scanSkillGroundedCandidates(ctx context.Context, patt
 	return out, scanned, nil
 }
 
-func (u *AIRecommendation) rankRowsWithAI(ctx context.Context, userProfile string, userSkills []string, primarySkill string, backendProfile bool, rows []repository.JobListRow, topK int) ([]AIJobRecommendationItem, time.Time, error) {
+func (u *AIRecommendation) rankRowsWithAI(ctx context.Context, userProfile string, userSkills []string, skillMeta map[string]skillContext, primarySkill string, backendProfile bool, rows []repository.JobListRow, topK int) ([]AIJobRecommendationItem, time.Time, error) {
 	type scored struct {
 		row             repository.JobListRow
 		structuredScore int
@@ -331,7 +366,7 @@ func (u *AIRecommendation) rankRowsWithAI(ctx context.Context, userProfile strin
 		if r.CreatedAt.After(lastSeen) {
 			lastSeen = r.CreatedAt
 		}
-		ss, reasons := structuredScoreJob(r, userSkills, primarySkill, backendProfile)
+		ss, reasons := structuredScoreJob(r, userSkills, skillMeta, primarySkill, backendProfile)
 		if ss <= 0 {
 			continue
 		}
@@ -595,6 +630,19 @@ func buildSkillPatterns(skills []string) []string {
 	return uniqueStrings(clean)
 }
 
+func buildRolePatterns(roles []string) []string {
+	clean := make([]string, 0, len(roles))
+	for _, r := range roles {
+		k := strings.ToLower(strings.TrimSpace(r))
+		if k == "" {
+			continue
+		}
+		// For roles we keep it simple: treat role as keyword substring pattern.
+		clean = append(clean, "%"+k+"%")
+	}
+	return uniqueStrings(clean)
+}
+
 func isBackendProfile(skills []string) bool {
 	for _, s := range skills {
 		k := strings.ToLower(strings.TrimSpace(s))
@@ -606,7 +654,7 @@ func isBackendProfile(skills []string) bool {
 	return false
 }
 
-func structuredScoreJob(r repository.JobListRow, userSkills []string, primarySkill string, backendProfile bool) (int, []string) {
+func structuredScoreJob(r repository.JobListRow, userSkills []string, skillMeta map[string]skillContext, primarySkill string, backendProfile bool) (int, []string) {
 	rawText := strings.ToLower(strings.TrimSpace(r.Title + "\n" + r.Description + "\n" + r.RawDescription))
 	if rawText == "" || len(userSkills) == 0 {
 		return 0, nil
@@ -616,11 +664,35 @@ func structuredScoreJob(r repository.JobListRow, userSkills []string, primarySki
 	tokenText := normalizeTokenText(rawText)
 
 	matched := make([]string, 0, len(userSkills))
+	matchedWeight := 0.0
+	totalWeight := 0.0
 	for _, s := range userSkills {
 		k := strings.ToLower(strings.TrimSpace(s))
 		if k == "" {
 			continue
 		}
+		w := 1.0
+		if skillMeta != nil {
+			if sc, ok := skillMeta[k]; ok {
+				p := sc.Proficiency
+				y := sc.Years
+				if p < 0 {
+					p = 0
+				}
+				if y < 0 {
+					y = 0
+				}
+				// Lightweight weighting: proficiency and years improve importance, bounded.
+				if p > 5 {
+					p = 5
+				}
+				if y > 10 {
+					y = 10
+				}
+				w = 1.0 + float64(p)*0.15 + float64(y)*0.05
+			}
+		}
+		totalWeight += w
 		variants := []string{k}
 		if k == "go" {
 			variants = append(variants, "golang")
@@ -636,12 +708,14 @@ func structuredScoreJob(r repository.JobListRow, userSkills []string, primarySki
 			if len(v) <= 2 {
 				if strings.Contains(tokenText, " "+v+" ") {
 					matched = append(matched, s)
+					matchedWeight += w
 					break
 				}
 				continue
 			}
 			if strings.Contains(rawText, v) {
 				matched = append(matched, s)
+				matchedWeight += w
 				break
 			}
 		}
@@ -651,7 +725,10 @@ func structuredScoreJob(r repository.JobListRow, userSkills []string, primarySki
 		return 0, nil
 	}
 
-	skillScore := float64(len(matched)) / float64(len(userSkills))
+	if totalWeight <= 0 {
+		totalWeight = float64(len(userSkills))
+	}
+	skillScore := matchedWeight / totalWeight
 	base := int(skillScore*70.0 + 0.5)
 	bonus := 0
 	penalty := 0
@@ -693,6 +770,46 @@ func structuredScoreJob(r repository.JobListRow, userSkills []string, primarySki
 		score = 100
 	}
 	return score, reasons
+}
+
+func buildSkillSignal(name string, proficiency int, years int) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if proficiency < 0 {
+		proficiency = 0
+	}
+	if years < 0 {
+		years = 0
+	}
+	return name + "(proficiency=" + strconv.Itoa(proficiency) + ",years=" + strconv.Itoa(years) + ")"
+}
+
+func buildSkillMeta(skills []repository.UserSkill) map[string]skillContext {
+	if len(skills) == 0 {
+		return nil
+	}
+	out := make(map[string]skillContext, len(skills))
+	for _, s := range skills {
+		k := strings.ToLower(strings.TrimSpace(s.SkillName))
+		if k == "" {
+			continue
+		}
+		out[k] = skillContext{Proficiency: s.ProficiencyLevel, Years: s.YearsExperience}
+		// add common aliases used elsewhere
+		switch k {
+		case "golang":
+			out["go"] = out[k]
+		case "go":
+			out["golang"] = out[k]
+		case "postgres":
+			out["postgresql"] = out[k]
+		case "postgresql":
+			out["postgres"] = out[k]
+		}
+	}
+	return out
 }
 
 func normalizeTokenText(s string) string {

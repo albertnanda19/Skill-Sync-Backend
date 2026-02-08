@@ -31,10 +31,19 @@ func (m mockJobRepo) ListJobsForListing(context.Context, repository.JobListFilte
 func (m mockJobRepo) ListJobsSkillGroundedCandidates(context.Context, []string, int) ([]repository.JobListRow, error) {
 	return m.items, m.err
 }
+func (m mockJobRepo) ListJobsSkillGroundedCandidatesWithRoles(context.Context, []string, []string, int) ([]repository.JobListRow, error) {
+	return m.items, m.err
+}
 func (m mockJobRepo) ListJobsSkillGroundedCandidatesSince(context.Context, []string, time.Time, int) ([]repository.JobListRow, error) {
 	return m.items, m.err
 }
+func (m mockJobRepo) ListJobsSkillGroundedCandidatesSinceWithRoles(context.Context, []string, []string, time.Time, int) ([]repository.JobListRow, error) {
+	return m.items, m.err
+}
 func (m mockJobRepo) ListJobsSkillGroundedCandidatesPage(context.Context, []string, time.Time, uuid.UUID, int) ([]repository.JobListRow, error) {
+	return m.items, m.err
+}
+func (m mockJobRepo) ListJobsSkillGroundedCandidatesPageWithRoles(context.Context, []string, []string, time.Time, uuid.UUID, int) ([]repository.JobListRow, error) {
 	return m.items, m.err
 }
 func (m mockJobRepo) GetMaxJobCreatedAt(context.Context) (time.Time, error) {

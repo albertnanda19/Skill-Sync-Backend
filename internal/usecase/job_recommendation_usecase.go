@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"log"
 	"sort"
 
 	"skill-sync/internal/domain/matching"
@@ -36,13 +37,14 @@ type JobRecommendationItem struct {
 }
 
 type JobRecommendation struct {
-	jobs       repository.JobRepository
-	jobSkills  repository.JobSkillRepository
-	userSkills repository.UserSkillRepository
+	jobs        repository.JobRepository
+	jobSkills   repository.JobSkillRepository
+	jobSkillsV2 repository.JobSkillV2Repository
+	userSkills  repository.UserSkillRepository
 }
 
-func NewJobRecommendationUsecase(jobs repository.JobRepository, jobSkills repository.JobSkillRepository, userSkills repository.UserSkillRepository) *JobRecommendation {
-	return &JobRecommendation{jobs: jobs, jobSkills: jobSkills, userSkills: userSkills}
+func NewJobRecommendationUsecase(jobs repository.JobRepository, jobSkills repository.JobSkillRepository, jobSkillsV2 repository.JobSkillV2Repository, userSkills repository.UserSkillRepository) *JobRecommendation {
+	return &JobRecommendation{jobs: jobs, jobSkills: jobSkills, jobSkillsV2: jobSkillsV2, userSkills: userSkills}
 }
 
 func (u *JobRecommendation) GetRecommendations(ctx context.Context, userID uuid.UUID, params JobRecommendationParams) ([]JobRecommendationItem, error) {
@@ -73,6 +75,7 @@ func (u *JobRecommendation) GetRecommendations(ctx context.Context, userID uuid.
 	if len(us) == 0 {
 		return nil, ErrUserSkillProfileEmpty
 	}
+	log.Printf("user skills count: %d", len(us))
 
 	jobs, err := u.jobs.ListJobs(ctx, limit, offset)
 	if err != nil {
@@ -90,14 +93,9 @@ func (u *JobRecommendation) GetRecommendations(ctx context.Context, userID uuid.
 		jobIDs = append(jobIDs, j.ID)
 	}
 
-	reqsByJobID, err := u.jobSkills.FindByJobIDs(ctx, jobIDs)
-	if err != nil {
-		return nil, ErrInternal
-	}
-
-	engineUserSkills := make([]matching.UserSkill, 0, len(us))
+	engineUserSkills := make([]matching.UserSkillV2, 0, len(us))
 	for _, it := range us {
-		engineUserSkills = append(engineUserSkills, matching.UserSkill{
+		engineUserSkills = append(engineUserSkills, matching.UserSkillV2{
 			SkillID:          it.SkillID,
 			SkillName:        it.SkillName,
 			ProficiencyLevel: it.ProficiencyLevel,
@@ -107,28 +105,64 @@ func (u *JobRecommendation) GetRecommendations(ctx context.Context, userID uuid.
 
 	out := make([]JobRecommendationItem, 0, len(jobs))
 	for _, j := range jobs {
-		reqs := reqsByJobID[j.ID]
-		engineReqs := make([]matching.JobRequirement, 0, len(reqs))
-		for _, r := range reqs {
-			requiredLevel := r.ImportanceWeight
-			if requiredLevel < 1 {
-				requiredLevel = 1
+		var reqsV2 []repository.JobSkillRequirementV2
+		if u.jobSkillsV2 != nil {
+			reqsV2, err = u.jobSkillsV2.FindByJobIDV2(ctx, j.ID)
+			if err != nil {
+				return nil, ErrInternal
 			}
-			if requiredLevel > 5 {
-				requiredLevel = 5
+		} else {
+			// Backward compatibility if not wired: map v1 requirements into v2 inputs.
+			fallback, ferr := u.jobSkills.FindByJobID(ctx, j.ID)
+			if ferr != nil {
+				return nil, ErrInternal
 			}
-			engineReqs = append(engineReqs, matching.JobRequirement{
-				SkillID:       r.SkillID,
-				SkillName:     r.SkillName,
-				RequiredLevel: requiredLevel,
-				IsMandatory:   requiredLevel >= 4,
-				RequiredYears: requiredLevel,
-			})
+			reqsV2 = make([]repository.JobSkillRequirementV2, 0, len(fallback))
+			for _, r := range fallback {
+				reqsV2 = append(reqsV2, repository.JobSkillRequirementV2{
+					SkillID:          r.SkillID,
+					SkillName:        r.SkillName,
+					RequiredLevel:    nil,
+					IsMandatory:      nil,
+					RequiredYears:    nil,
+					ImportanceWeight: r.ImportanceWeight,
+				})
+			}
 		}
 
-		res := matching.Calculate(engineUserSkills, engineReqs)
+		log.Printf("job %s required skills: %d", j.ID, len(reqsV2))
+		if len(reqsV2) == 0 {
+			continue
+		}
+
+		totalWeight := 0
+		engineReqs := make([]matching.JobRequirementV2, 0, len(reqsV2))
+		for _, r := range reqsV2 {
+			if r.ImportanceWeight > 0 {
+				totalWeight += r.ImportanceWeight
+			}
+			engineReqs = append(engineReqs, matching.JobRequirementV2{
+				SkillID:          r.SkillID,
+				SkillName:        r.SkillName,
+				RequiredLevel:    r.RequiredLevel,
+				IsMandatory:      r.IsMandatory,
+				RequiredYears:    r.RequiredYears,
+				ImportanceWeight: r.ImportanceWeight,
+			})
+		}
+		if totalWeight <= 0 {
+			continue
+		}
+
+		res := matching.CalculateV2(engineUserSkills, engineReqs)
+		log.Printf("job %s score %d", j.ID, res.MatchScore)
 		if res.MatchScore < minScore {
 			continue
+		}
+
+		missing := make([]matching.MissingSkill, 0, len(res.MissingSkills))
+		for _, ms := range res.MissingSkills {
+			missing = append(missing, matching.MissingSkill{SkillID: ms.SkillID, SkillName: ms.SkillName, IsMandatory: ms.IsMandatory})
 		}
 
 		out = append(out, JobRecommendationItem{
@@ -138,7 +172,7 @@ func (u *JobRecommendation) GetRecommendations(ctx context.Context, userID uuid.
 			Location:         j.Location,
 			MatchScore:       res.MatchScore,
 			MandatoryMissing: res.MandatoryMissing,
-			MissingSkills:    res.MissingSkills,
+			MissingSkills:    missing,
 		})
 	}
 

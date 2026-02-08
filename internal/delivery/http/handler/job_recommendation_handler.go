@@ -14,10 +14,10 @@ import (
 )
 
 type JobRecommendationHandler struct {
-	uc usecase.JobRecommendationUsecase
+	uc usecase.AIRecommendationUsecase
 }
 
-func NewJobRecommendationHandler(uc usecase.JobRecommendationUsecase) *JobRecommendationHandler {
+func NewJobRecommendationHandler(uc usecase.AIRecommendationUsecase) *JobRecommendationHandler {
 	return &JobRecommendationHandler{uc: uc}
 }
 
@@ -51,33 +51,45 @@ func (h *JobRecommendationHandler) GetRecommendations(c fiber.Ctx) error {
 		minScore = 0
 	}
 
-	items, err := h.uc.GetRecommendations(c.Context(), userID, usecase.JobRecommendationParams{
-		Limit:    limit,
-		Offset:   offset,
-		MinScore: minScore,
-	})
+	items, err := h.uc.GetAIRecommendations(c.Context(), userID)
 	if err != nil {
 		return mapJobRecommendationUsecaseError(err)
 	}
 
+	// Apply query params for backward-compatible pagination/filtering
+	filtered := make([]usecase.AIJobRecommendationItem, 0, len(items))
+	for _, it := range items {
+		if it.MatchScore < minScore {
+			continue
+		}
+		filtered = append(filtered, it)
+	}
+	items = filtered
+
+	if offset > 0 {
+		if offset >= len(items) {
+			items = []usecase.AIJobRecommendationItem{}
+		} else {
+			items = items[offset:]
+		}
+	}
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+
 	out := make([]dto.JobRecommendationResponse, 0, len(items))
 	for _, it := range items {
-		missing := make([]dto.JobRecommendationMissingSkillItem, 0, len(it.MissingSkills))
-		for _, ms := range it.MissingSkills {
-			missing = append(missing, dto.JobRecommendationMissingSkillItem{
-				SkillID:     ms.SkillID,
-				SkillName:   ms.SkillName,
-				IsMandatory: ms.IsMandatory,
-			})
-		}
 		out = append(out, dto.JobRecommendationResponse{
 			JobID:            it.JobID,
 			Title:            it.Title,
 			CompanyName:      it.CompanyName,
 			Location:         it.Location,
+			JobURL:           it.JobURL,
+			Source:           it.Source,
 			MatchScore:       it.MatchScore,
-			MandatoryMissing: it.MandatoryMissing,
-			MissingSkills:    missing,
+			MatchReason:      it.MatchReason,
+			MandatoryMissing: false,
+			MissingSkills:    []dto.JobRecommendationMissingSkillItem{},
 		})
 	}
 

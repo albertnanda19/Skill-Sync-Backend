@@ -42,6 +42,13 @@ type ResultV2 struct {
 }
 
 func CalculateV2(userSkills []UserSkillV2, reqs []JobRequirementV2) ResultV2 {
+	if len(userSkills) == 0 {
+		return ResultV2{MatchScore: 0, MandatoryMissing: false, MatchedSkills: nil, MissingSkills: nil}
+	}
+	if len(reqs) == 0 {
+		return ResultV2{MatchScore: 0, MandatoryMissing: false, MatchedSkills: nil, MissingSkills: nil}
+	}
+
 	userBySkillID := make(map[uuid.UUID]UserSkillV2, len(userSkills))
 	for _, us := range userSkills {
 		if us.SkillID == uuid.Nil {
@@ -50,79 +57,87 @@ func CalculateV2(userSkills []UserSkillV2, reqs []JobRequirementV2) ResultV2 {
 		userBySkillID[us.SkillID] = us
 	}
 
-	mandatory := make([]JobRequirementV2, 0)
-	optional := make([]JobRequirementV2, 0)
+	var totalWeight float64
+	var matchedWeight float64
+
+	mandatoryMissing := false
+	matched := make([]MatchedSkillV2, 0, len(reqs))
+	missing := make([]MissingSkillV2, 0)
+
 	for _, r := range reqs {
 		if r.SkillID == uuid.Nil {
 			continue
 		}
-		if resolveIsMandatoryV2(r) {
-			mandatory = append(mandatory, r)
-		} else {
-			optional = append(optional, r)
+
+		w := float64(r.ImportanceWeight)
+		if w <= 0 {
+			continue
 		}
-	}
+		totalWeight += w
 
-	var mandatoryTotal float64
-	var optionalTotal float64
-	var expTotal float64
-
-	matched := make([]MatchedSkillV2, 0, len(reqs))
-	missing := make([]MissingSkillV2, 0)
-
-	mandatoryPer := 0.0
-	if len(mandatory) > 0 {
-		mandatoryPer = 60.0 / float64(len(mandatory))
-	}
-	optionalPer := 0.0
-	if len(optional) > 0 {
-		optionalPer = 30.0 / float64(len(optional))
-	}
-
-	expDenom := 0
-	expSum := 0.0
-
-	mandatoryMissing := false
-
-	for _, r := range mandatory {
 		us, ok := userBySkillID[r.SkillID]
 		if !ok {
-			mandatoryMissing = true
-			missing = append(missing, MissingSkillV2{SkillID: r.SkillID, SkillName: r.SkillName, IsMandatory: true})
-			expDenom++
+			isMand := resolveIsMandatoryV2(r)
+			if isMand {
+				mandatoryMissing = true
+			}
+			missing = append(missing, MissingSkillV2{SkillID: r.SkillID, SkillName: r.SkillName, IsMandatory: isMand})
 			continue
 		}
 
-		contrib := scoreRequirementV2(us, r, mandatoryPer)
-		mandatoryTotal += contrib
-		matched = append(matched, MatchedSkillV2{SkillID: r.SkillID, SkillName: r.SkillName, ScoreContribution: int(math.Round(contrib))})
-
-		expDenom++
-		expSum += expRatioV2(us, r)
-	}
-
-	for _, r := range optional {
-		us, ok := userBySkillID[r.SkillID]
-		if !ok {
-			missing = append(missing, MissingSkillV2{SkillID: r.SkillID, SkillName: r.SkillName, IsMandatory: false})
-			expDenom++
-			continue
+		reqLvl := resolveRequiredLevelV2(r)
+		usrLvl := clampInt(us.ProficiencyLevel, 0, 5)
+		levelRatio := 0.0
+		if usrLvl > 0 {
+			if reqLvl <= 0 {
+				levelRatio = 1
+			} else {
+				levelRatio = float64(usrLvl) / float64(reqLvl)
+				if levelRatio > 1 {
+					levelRatio = 1
+				}
+				if levelRatio < 0 {
+					levelRatio = 0
+				}
+			}
 		}
 
-		contrib := scoreRequirementV2(us, r, optionalPer)
-		optionalTotal += contrib
+		reqYears := resolveRequiredYearsV2(r)
+		expRatio := 1.0
+		if reqYears > 0 {
+			usrYears := us.YearsExperience
+			if usrYears <= 0 {
+				expRatio = 0
+			} else {
+				expRatio = float64(usrYears) / float64(reqYears)
+				if expRatio > 1 {
+					expRatio = 1
+				}
+				if expRatio < 0 {
+					expRatio = 0
+				}
+			}
+		}
+
+		skillScore := (levelRatio * 0.7) + (expRatio * 0.3)
+		if skillScore < 0 {
+			skillScore = 0
+		}
+		if skillScore > 1 {
+			skillScore = 1
+		}
+
+		contrib := skillScore * w
+		matchedWeight += contrib
 		matched = append(matched, MatchedSkillV2{SkillID: r.SkillID, SkillName: r.SkillName, ScoreContribution: int(math.Round(contrib))})
-
-		expDenom++
-		expSum += expRatioV2(us, r)
 	}
 
-	if expDenom > 0 {
-		expTotal = 10.0 * (expSum / float64(expDenom))
+	if totalWeight <= 0 {
+		return ResultV2{MatchScore: 0, MandatoryMissing: mandatoryMissing, MatchedSkills: matched, MissingSkills: missing}
 	}
 
-	total := mandatoryTotal + optionalTotal + expTotal
-	score := int(math.Round(total))
+	scoreFloat := (matchedWeight / totalWeight) * 100
+	score := int(math.Round(scoreFloat))
 	if score < 0 {
 		score = 0
 	}
@@ -136,21 +151,6 @@ func CalculateV2(userSkills []UserSkillV2, reqs []JobRequirementV2) ResultV2 {
 		MatchedSkills:    matched,
 		MissingSkills:    missing,
 	}
-}
-
-func scoreRequirementV2(us UserSkillV2, r JobRequirementV2, weight float64) float64 {
-	reqLvl := resolveRequiredLevelV2(r)
-	usrLvl := clampInt(us.ProficiencyLevel, 0, 5)
-	if usrLvl <= 0 {
-		return 0
-	}
-	if reqLvl <= 0 {
-		return weight
-	}
-	if usrLvl >= reqLvl {
-		return weight
-	}
-	return weight * (float64(usrLvl) / float64(reqLvl))
 }
 
 func resolveRequiredLevelV2(r JobRequirementV2) int {

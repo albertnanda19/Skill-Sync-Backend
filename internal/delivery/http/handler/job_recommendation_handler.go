@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"strconv"
+	"time"
 
 	"skill-sync/internal/delivery/http/dto"
 	"skill-sync/internal/delivery/http/middleware"
@@ -26,6 +27,7 @@ func (h *JobRecommendationHandler) RegisterRoutes(r fiber.Router) {
 		return
 	}
 	grp := r.Group("/jobs")
+	grp.Get("/recommendation", h.GetRecommendations)
 	grp.Get("/recommendations", h.GetRecommendations)
 }
 
@@ -93,7 +95,16 @@ func (h *JobRecommendationHandler) GetRecommendations(c fiber.Ctx) error {
 		})
 	}
 
-	return response.Success(c, fiber.StatusOK, response.MessageOK, out)
+	env := dto.JobRecommendationEnvelope{
+		GeneratedAt:          time.Now().UTC(),
+		RecommendationSource: "skill_grounded_ai",
+		Jobs:                 out,
+	}
+	if len(out) == 0 {
+		env.Message = "No jobs found matching your core skills"
+	}
+
+	return response.Success(c, fiber.StatusOK, response.MessageOK, env)
 }
 
 func parseQueryInt(c fiber.Ctx, key string, defaultVal int) int {

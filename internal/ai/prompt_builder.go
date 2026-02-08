@@ -8,7 +8,7 @@ import (
 const maxDescriptionChars = 500
 
 func BuildSystemPrompt() string {
-	return "You are an intelligent job recommendation engine.\nYour task is to rank job postings based on how relevant they are to the user profile.\nUse semantic understanding of skills, experience, job title, and description.\nReturn only valid JSON."
+	return "You are a job-to-skill matching engine.\nYour task is to score each job ONLY by direct, explicit skill overlap and role/domain alignment with the user profile.\nDo NOT use generic semantic similarity.\nIf a job does not explicitly mention relevant skills, it must receive a very low score or be excluded.\nReturn only valid JSON."
 }
 
 func BuildUserPrompt(userProfile string, jobs []JobContext, maxResults int) string {
@@ -33,8 +33,10 @@ func BuildUserPrompt(userProfile string, jobs []JobContext, maxResults int) stri
 	b.WriteString("\n  { \"job_id\": \"<one of the provided IDs>\", \"score\": 0-100, \"reason\": \"short explanation\" }")
 	b.WriteString("\n]\n\nRules:\n")
 	b.WriteString("- Score range: 0–100\n")
-	b.WriteString("- Higher score = more relevant\n")
-	b.WriteString("- Only include jobs that are truly relevant to the user profile\n")
+	b.WriteString("- Higher score = more direct skill overlap and better domain alignment\n")
+	b.WriteString("- Focus ONLY on: explicit skill mentions (title/description), backend vs frontend alignment, and seniority if available\n")
+	b.WriteString("- Ignore company reputation, compensation, and generic similarity\n")
+	b.WriteString("- Exclude jobs with weak or no explicit overlap by returning [] or omitting them\n")
 	b.WriteString(fmt.Sprintf("- Maximum %d results\n", maxResults))
 	b.WriteString("- If none are relevant, return []\n")
 	b.WriteString("- job_id MUST match exactly one of the IDs provided above\n")

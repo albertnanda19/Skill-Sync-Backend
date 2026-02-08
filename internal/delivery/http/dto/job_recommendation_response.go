@@ -1,6 +1,17 @@
 package dto
 
-import "github.com/google/uuid"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type JobRecommendationEnvelope struct {
+	GeneratedAt          time.Time                   `json:"generated_at"`
+	RecommendationSource string                      `json:"recommendation_source"`
+	Jobs                 []JobRecommendationResponse `json:"jobs"`
+	Message              string                      `json:"message,omitempty"`
+}
 
 type JobRecommendationResponse struct {
 	JobID            uuid.UUID                           `json:"job_id"`
@@ -10,7 +21,7 @@ type JobRecommendationResponse struct {
 	JobURL           string                              `json:"job_url"`
 	Source           string                              `json:"source"`
 	MatchScore       int                                 `json:"match_score"`
-	MatchReason      string                              `json:"match_reason"`
+	MatchReason      []string                            `json:"match_reason"`
 	MandatoryMissing bool                                `json:"mandatory_missing"`
 	MissingSkills    []JobRecommendationMissingSkillItem `json:"missing_skills"`
 }

@@ -28,6 +28,9 @@ func (m mockJobRepo) ListActiveJobsWithoutSkills(context.Context, int, int) ([]r
 func (m mockJobRepo) ListJobsForListing(context.Context, repository.JobListFilter) ([]repository.JobListRow, error) {
 	return m.items, m.err
 }
+func (m mockJobRepo) ListJobsSkillGroundedCandidates(context.Context, []string, int) ([]repository.JobListRow, error) {
+	return m.items, m.err
+}
 func (m mockJobRepo) UpsertJobs(context.Context, []repository.JobUpsert) error { return nil }
 
 type mockJobSkillRepo struct {
@@ -58,13 +61,14 @@ func TestJobListUsecase_ListJobs_Success(t *testing.T) {
 	posted := time.Now().UTC()
 	uc := NewJobListUsecase(
 		mockJobRepo{items: []repository.JobListRow{{
-			ID:          jobID,
-			Title:       "Backend Engineer",
-			Company:     "Acme",
-			Location:    "Jakarta",
-			SourceURL:   "https://example.com/job/1",
-			Description: "desc",
-			PostedAt:    &posted,
+			ID:             jobID,
+			Title:          "Backend Engineer",
+			Company:        "Acme",
+			Location:       "Jakarta",
+			SourceURL:      "https://example.com/job/1",
+			Description:    "desc",
+			RawDescription: "raw",
+			PostedAt:       &posted,
 		}}},
 		mockJobSkillRepo{m: map[uuid.UUID][]repository.JobSkillRequirement{jobID: {
 			{SkillID: uuid.New(), SkillName: "Go", ImportanceWeight: 5},

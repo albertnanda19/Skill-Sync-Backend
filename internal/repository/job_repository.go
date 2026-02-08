@@ -22,6 +22,7 @@ type JobRepository interface {
 	ExistsByID(ctx context.Context, jobID uuid.UUID) (bool, error)
 	ListJobs(ctx context.Context, limit, offset int) ([]Job, error)
 	ListJobsForListing(ctx context.Context, f JobListFilter) ([]JobListRow, error)
+	ListJobsSkillGroundedCandidates(ctx context.Context, skillPatterns []string, limit int) ([]JobListRow, error)
 	ListActiveJobsWithoutSkills(ctx context.Context, limit, offset int) ([]JobForSkillExtraction, error)
 	GetLatestScrapedAt(ctx context.Context, title string, location string) (time.Time, error)
 	UpsertJobs(ctx context.Context, jobs []JobUpsert) error
@@ -73,15 +74,16 @@ type JobFreshnessFilter struct {
 }
 
 type JobListRow struct {
-	ID          uuid.UUID
-	Title       string
-	Company     string
-	Location    string
-	Source      string
-	SourceURL   string
-	Description string
-	PostedAt    *time.Time
-	CreatedAt   time.Time
+	ID             uuid.UUID
+	Title          string
+	Company        string
+	Location       string
+	Source         string
+	SourceURL      string
+	Description    string
+	RawDescription string
+	PostedAt       *time.Time
+	CreatedAt      time.Time
 }
 
 type PostgresJobRepository struct {
@@ -141,6 +143,72 @@ func (r *PostgresJobRepository) ListJobs(ctx context.Context, limit, offset int)
 	return out, nil
 }
 
+func (r *PostgresJobRepository) ListJobsSkillGroundedCandidates(ctx context.Context, skillPatterns []string, limit int) ([]JobListRow, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	clean := make([]string, 0, len(skillPatterns))
+	for _, p := range skillPatterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		clean = append(clean, p)
+	}
+	if len(clean) == 0 {
+		return []JobListRow{}, nil
+	}
+
+	q := strings.Builder{}
+	q.WriteString(`SELECT j.id,
+		COALESCE(j.title, ''),
+		COALESCE(j.company, ''),
+		COALESCE(j.location, ''),
+		COALESCE(j.source, 'unknown'),
+		COALESCE(j.source_url, j.url, ''),
+		COALESCE(j.description, ''),
+		COALESCE(j.raw_description, ''),
+		j.posted_at,
+		j.created_at
+		FROM jobs j
+		WHERE j.is_active = true
+		AND (
+			j.title ILIKE ANY($1)
+			OR j.description ILIKE ANY($1)
+			OR j.raw_description ILIKE ANY($1)
+		)
+		ORDER BY j.posted_at DESC NULLS LAST, j.created_at DESC
+		LIMIT $2`)
+
+	rows, err := r.db.Query(ctx, q.String(), clean, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]JobListRow, 0)
+	for rows.Next() {
+		var it JobListRow
+		var posted sql.NullTime
+		if err := rows.Scan(&it.ID, &it.Title, &it.Company, &it.Location, &it.Source, &it.SourceURL, &it.Description, &it.RawDescription, &posted, &it.CreatedAt); err != nil {
+			return nil, err
+		}
+		if posted.Valid {
+			t := posted.Time
+			it.PostedAt = &t
+		}
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobListFilter) ([]JobListRow, error) {
 	limit := f.Limit
 	if limit <= 0 {
@@ -162,6 +230,7 @@ func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobLis
 		COALESCE(j.source, 'unknown'),
 		COALESCE(j.source_url, j.url, ''),
 		COALESCE(j.description, ''),
+		COALESCE(j.raw_description, ''),
 		j.posted_at,
 		j.created_at
 		FROM jobs j
@@ -232,7 +301,7 @@ func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobLis
 	for rows.Next() {
 		var it JobListRow
 		var posted sql.NullTime
-		if err := rows.Scan(&it.ID, &it.Title, &it.Company, &it.Location, &it.Source, &it.SourceURL, &it.Description, &posted, &it.CreatedAt); err != nil {
+		if err := rows.Scan(&it.ID, &it.Title, &it.Company, &it.Location, &it.Source, &it.SourceURL, &it.Description, &it.RawDescription, &posted, &it.CreatedAt); err != nil {
 			return nil, err
 		}
 		if posted.Valid {

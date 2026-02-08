@@ -50,14 +50,13 @@ func BuildUserProfileHash(userID uuid.UUID, skills []string, updatedAt time.Time
 func BuildAIRecommendationCacheKey(userID uuid.UUID, profileHash string) string {
 	prefix := strings.TrimSpace(os.Getenv("AI_CACHE_PREFIX"))
 	if prefix == "" {
-		prefix = "ai_reco"
-	}
-	version := strings.TrimSpace(os.Getenv("AI_CACHE_VERSION"))
-	if version == "" {
-		version = "v1"
+		prefix = "recommendations"
 	}
 	profileHash = strings.TrimSpace(profileHash)
-	return prefix + ":" + version + ":user:" + userID.String() + ":" + profileHash
+	if profileHash == "" {
+		return prefix + ":user:" + userID.String()
+	}
+	return prefix + ":user:" + userID.String() + ":" + profileHash
 }
 
 func IsAICacheEnabled() bool {
@@ -75,11 +74,11 @@ func IsAICacheEnabled() bool {
 func AICacheTTL() time.Duration {
 	raw := strings.TrimSpace(os.Getenv("AI_CACHE_TTL_SECONDS"))
 	if raw == "" {
-		return 300 * time.Second
+		return 900 * time.Second
 	}
 	v, err := strconv.Atoi(raw)
 	if err != nil || v <= 0 {
-		return 300 * time.Second
+		return 900 * time.Second
 	}
 	return time.Duration(v) * time.Second
 }
@@ -154,12 +153,8 @@ func (c *AIRecommendationCache) InvalidateUser(ctx context.Context, userID uuid.
 	}
 	prefix := strings.TrimSpace(os.Getenv("AI_CACHE_PREFIX"))
 	if prefix == "" {
-		prefix = "ai_reco"
+		prefix = "recommendations"
 	}
-	version := strings.TrimSpace(os.Getenv("AI_CACHE_VERSION"))
-	if version == "" {
-		version = "v1"
-	}
-	pattern := prefix + ":" + version + ":user:" + userID.String() + ":*"
+	pattern := prefix + ":user:" + userID.String() + ":*"
 	_ = lc.DeleteByPattern(ctx, pattern)
 }

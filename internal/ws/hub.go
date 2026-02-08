@@ -69,6 +69,12 @@ func (h *Hub) Run() {
 			if h.logger != nil {
 				h.logger.Printf("WS disconnected | keyword=%s remaining=%d", keyword, remaining)
 			}
+			if remaining == 0 {
+				if fn := getOnZeroClients(); fn != nil {
+					kw := keyword
+					go fn(kw)
+				}
+			}
 
 		case msg := <-h.broadcast:
 			if msg.Keyword == "" {

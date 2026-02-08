@@ -16,8 +16,23 @@ type JobsUpdatedEvent struct {
 
 var defaultHub atomic.Pointer[Hub]
 
+var onZeroClients atomic.Value
+
 func SetDefaultHub(h *Hub) {
 	defaultHub.Store(h)
+}
+
+func SetOnZeroClients(fn func(keyword string)) {
+	onZeroClients.Store(fn)
+}
+
+func getOnZeroClients() func(keyword string) {
+	v := onZeroClients.Load()
+	if v == nil {
+		return nil
+	}
+	fn, _ := v.(func(string))
+	return fn
 }
 
 func NotifyJobsUpdated(keyword string, source string) {

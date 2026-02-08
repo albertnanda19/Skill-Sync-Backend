@@ -36,10 +36,11 @@ type AIRecommendation struct {
 	userSkills repository.UserSkillRepository
 	users      user.Repository
 	provider   ai.Provider
+	cache      *AIRecommendationCache
 }
 
-func NewAIRecommendationUsecase(jobs repository.JobRepository, userSkills repository.UserSkillRepository, users user.Repository, provider ai.Provider) *AIRecommendation {
-	return &AIRecommendation{jobs: jobs, userSkills: userSkills, users: users, provider: provider}
+func NewAIRecommendationUsecase(jobs repository.JobRepository, userSkills repository.UserSkillRepository, users user.Repository, provider ai.Provider, cache *AIRecommendationCache) *AIRecommendation {
+	return &AIRecommendation{jobs: jobs, userSkills: userSkills, users: users, provider: provider, cache: cache}
 }
 
 func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid.UUID) ([]AIJobRecommendationItem, error) {
@@ -85,6 +86,11 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 	if err != nil {
 		return u.fallbackRecentJobs(ctx, nil)
 	}
+
+	skillsUpdatedAt, err := u.userSkills.GetSkillsUpdatedAt(ctx, userID)
+	if err != nil {
+		skillsUpdatedAt = time.Time{}
+	}
 	skillKeywords := make([]string, 0, len(skills))
 	if len(skills) > 0 {
 		names := make([]string, 0, len(skills))
@@ -104,6 +110,18 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 	userProfile := strings.Join(profileBits, "\n")
 	if strings.TrimSpace(userProfile) == "" {
 		userProfile = "Skills: (unknown)"
+	}
+
+	// Cache layer (between endpoint and AI provider)
+	cacheKey := ""
+	if u.cache != nil && IsAICacheEnabled() {
+		hash := BuildUserProfileHash(userID, uniqueStrings(skillKeywords), skillsUpdatedAt)
+		cacheKey = BuildAIRecommendationCacheKey(userID, hash)
+		if cached, hit := u.cache.GetFromCache(ctx, cacheKey); hit {
+			log.Printf("ai_cache_hit=true ai_cache_key=%s ai_called=false ai_jobs_returned=%d", cacheKey, len(cached))
+			return cached, nil
+		}
+		log.Printf("ai_cache_hit=false ai_cache_key=%s", cacheKey)
 	}
 
 	// Candidate jobs (recent)
@@ -133,14 +151,28 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 		model = "openrouter/auto"
 	}
 
+	// Stampede protection: ensure only one AI call per user at a time.
+	if cacheKey != "" {
+		locked, lerr := u.cache.AcquireUserLock(ctx, userID)
+		if lerr == nil && !locked {
+			time.Sleep(AIRecommendationLockWait())
+			if cached, hit := u.cache.GetFromCache(ctx, cacheKey); hit {
+				log.Printf("ai_cache_hit=true ai_cache_key=%s ai_called=false ai_jobs_returned=%d", cacheKey, len(cached))
+				return cached, nil
+			}
+			log.Printf("ai_cache_lock_contended=true ai_cache_key=%s ai_called=false", cacheKey)
+			return u.fallbackRecentJobs(ctx, skillKeywords)
+		}
+	}
+
 	start := time.Now()
 	recs, err := u.provider.Recommend(ctx, userProfile, jobCtx)
 	lat := time.Since(start)
 	if err != nil {
-		log.Printf("ai_recommendation=true model=%s candidate_jobs=%d ai_error=%v latency=%s", model, len(jobCtx), err, lat)
+		log.Printf("ai_recommendation=true ai_failed=true model=%s candidate_jobs=%d ai_error=%v latency=%s", model, len(jobCtx), err, lat)
 		return u.fallbackRecentJobs(ctx, skillKeywords)
 	}
-	log.Printf("ai_recommendation=true model=%s candidate_jobs=%d ai_returned=%d latency=%s", model, len(jobCtx), len(recs), lat)
+	log.Printf("ai_recommendation=true ai_failed=false model=%s candidate_jobs=%d ai_returned=%d latency=%s", model, len(jobCtx), len(recs), lat)
 
 	// Map AI recommendations -> jobs
 	type scored struct {
@@ -201,6 +233,13 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 
 	if len(out) == 0 {
 		return u.fallbackRecentJobs(ctx, skillKeywords)
+	}
+
+	if cacheKey != "" {
+		_ = u.cache.SaveToCache(ctx, userID, cacheKey, out)
+		log.Printf("ai_cache_hit=false ai_cache_key=%s ai_called=true ai_jobs_returned=%d", cacheKey, len(out))
+	} else {
+		log.Printf("ai_called=true ai_jobs_returned=%d", len(out))
 	}
 	return out, nil
 }

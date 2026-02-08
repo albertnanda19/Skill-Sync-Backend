@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"skill-sync/internal/ai"
+	icache "skill-sync/internal/cache"
 	"skill-sync/internal/config"
 	"skill-sync/internal/database"
 	"skill-sync/internal/delivery/http/handler"
@@ -60,7 +61,9 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 		ai.NewOpenRouterClient(),
 		ai.NewGroqClient(),
 	)
-	jobRecommendationUC := usecase.NewAIRecommendationUsecase(jobRepo, userSkillRepo, userRepo, aiProvider)
+	redisClient := icache.NewRedisClient(redisCache)
+	aiRecoCache := usecase.NewAIRecommendationCache(redisClient)
+	jobRecommendationUC := usecase.NewAIRecommendationUsecase(jobRepo, userSkillRepo, userRepo, aiProvider, aiRecoCache)
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
 	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, freshnessSvc, triggerCtl, redisCache, logger)
 	pipelineStatusUC := usecase.NewPipelineStatusUsecase(pipelineStatusRepo, nil)

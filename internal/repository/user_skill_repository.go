@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"skill-sync/internal/database"
 
@@ -27,6 +28,7 @@ type UserSkill struct {
 
 type UserSkillRepository interface {
 	FindByUserID(ctx context.Context, userID uuid.UUID) ([]UserSkill, error)
+	GetSkillsUpdatedAt(ctx context.Context, userID uuid.UUID) (time.Time, error)
 	FindByUserAndSkill(ctx context.Context, userID uuid.UUID, skillID uuid.UUID) (UserSkill, error)
 	SkillExistsByID(ctx context.Context, skillID uuid.UUID) (bool, error)
 	Create(ctx context.Context, us UserSkill) (UserSkill, error)
@@ -69,6 +71,21 @@ func (r *PostgresUserSkillRepository) FindByUserID(ctx context.Context, userID u
 		return nil, err
 	}
 	return out, nil
+}
+
+func (r *PostgresUserSkillRepository) GetSkillsUpdatedAt(ctx context.Context, userID uuid.UUID) (time.Time, error) {
+	var t sql.NullTime
+	row := r.db.QueryRow(ctx, `SELECT MAX(created_at) FROM user_skills WHERE user_id = $1`, userID)
+	if err := row.Scan(&t); err != nil {
+		if err == sql.ErrNoRows || errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	if !t.Valid {
+		return time.Time{}, nil
+	}
+	return t.Time, nil
 }
 
 func (r *PostgresUserSkillRepository) FindByUserAndSkill(ctx context.Context, userID uuid.UUID, skillID uuid.UUID) (UserSkill, error) {

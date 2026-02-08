@@ -31,6 +31,15 @@ func (m mockJobRepo) ListJobsForListing(context.Context, repository.JobListFilte
 func (m mockJobRepo) ListJobsSkillGroundedCandidates(context.Context, []string, int) ([]repository.JobListRow, error) {
 	return m.items, m.err
 }
+func (m mockJobRepo) ListJobsSkillGroundedCandidatesSince(context.Context, []string, time.Time, int) ([]repository.JobListRow, error) {
+	return m.items, m.err
+}
+func (m mockJobRepo) ListJobsSkillGroundedCandidatesPage(context.Context, []string, time.Time, uuid.UUID, int) ([]repository.JobListRow, error) {
+	return m.items, m.err
+}
+func (m mockJobRepo) GetMaxJobCreatedAt(context.Context) (time.Time, error) {
+	return time.Time{}, nil
+}
 func (m mockJobRepo) UpsertJobs(context.Context, []repository.JobUpsert) error { return nil }
 
 type mockJobSkillRepo struct {

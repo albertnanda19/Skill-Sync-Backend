@@ -55,7 +55,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	freshnessSvc := jobuc.NewFreshnessService(jobRepo, scraperClient, redisCache, logger, cfg.SearchFreshnessMinutes)
 	authUC := usecase.NewAuthUsecase(userRepo, jwtSvc)
 	userUC := usecase.NewUserUsecase(userRepo)
-	userSkillUC := usecase.NewUserSkillUsecase(userSkillRepo)
+	userSkillUCBase := usecase.NewUserSkillUsecase(userSkillRepo)
 	skillUC := usecase.NewSkillUsecase(skillRepo)
 	aiProvider := ai.NewFallbackProvider(
 		ai.NewGeminiClient(),
@@ -65,6 +65,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	redisClient := icache.NewRedisClient(redisCache)
 	aiRecoCache := usecase.NewAIRecommendationCache(redisClient)
 	jobRecommendationUC := usecase.NewAIRecommendationUsecase(jobRepo, userSkillRepo, userRepo, aiProvider, aiRecoCache)
+	userSkillUC := usecase.NewUserSkillWithRecommendationRefresh(userSkillUCBase, jobRecommendationUC, aiRecoCache)
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
 	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, freshnessSvc, triggerCtl, redisCache, logger)
 	pipelineStatusUC := usecase.NewPipelineStatusUsecase(pipelineStatusRepo, nil)

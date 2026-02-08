@@ -18,9 +18,11 @@ import (
 )
 
 type CachedAIRecommendations struct {
-	UserID      string                    `json:"user_id"`
-	GeneratedAt time.Time                 `json:"generated_at"`
-	Jobs        []AIJobRecommendationItem `json:"jobs"`
+	UserID                     string                    `json:"user_id"`
+	GeneratedAt                time.Time                 `json:"generated_at"`
+	LastSeenJobCreatedAt       time.Time                 `json:"last_seen_job_created_at"`
+	LastSeenGlobalJobCreatedAt time.Time                 `json:"last_seen_global_job_created_at"`
+	Jobs                       []AIJobRecommendationItem `json:"jobs"`
 }
 
 type AIRecommendationCache struct {
@@ -83,6 +85,21 @@ func AICacheTTL() time.Duration {
 	return time.Duration(v) * time.Second
 }
 
+func AICacheRefreshGrace() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("AI_CACHE_REFRESH_GRACE_SECONDS"))
+	if raw == "" {
+		return 5 * time.Second
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return 5 * time.Second
+	}
+	if v > 300 {
+		v = 300
+	}
+	return time.Duration(v) * time.Second
+}
+
 func AIRecommendationLockKey(userID uuid.UUID) string {
 	return "ai_reco_lock:" + userID.String()
 }
@@ -95,29 +112,29 @@ func AIRecommendationLockWait() time.Duration {
 	return 200 * time.Millisecond
 }
 
-func (c *AIRecommendationCache) GetFromCache(ctx context.Context, key string) ([]AIJobRecommendationItem, bool) {
+func (c *AIRecommendationCache) GetFromCache(ctx context.Context, key string) ([]AIJobRecommendationItem, time.Time, time.Time, time.Time, bool) {
 	if c == nil || c.cache == nil {
-		return nil, false
+		return nil, time.Time{}, time.Time{}, time.Time{}, false
 	}
 	raw, err := c.cache.Get(ctx, key)
 	if err != nil {
-		return nil, false
+		return nil, time.Time{}, time.Time{}, time.Time{}, false
 	}
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, false
+		return nil, time.Time{}, time.Time{}, time.Time{}, false
 	}
 	var cached CachedAIRecommendations
 	if err := json.Unmarshal([]byte(raw), &cached); err != nil {
-		return nil, false
+		return nil, time.Time{}, time.Time{}, time.Time{}, false
 	}
 	if len(cached.Jobs) == 0 {
-		return nil, false
+		return nil, time.Time{}, time.Time{}, time.Time{}, false
 	}
-	return cached.Jobs, true
+	return cached.Jobs, cached.LastSeenJobCreatedAt, cached.LastSeenGlobalJobCreatedAt, cached.GeneratedAt, true
 }
 
-func (c *AIRecommendationCache) SaveToCache(ctx context.Context, userID uuid.UUID, key string, jobs []AIJobRecommendationItem) error {
+func (c *AIRecommendationCache) SaveToCache(ctx context.Context, userID uuid.UUID, key string, jobs []AIJobRecommendationItem, lastSeenJobCreatedAt time.Time, lastSeenGlobalJobCreatedAt time.Time) error {
 	if c == nil || c.cache == nil {
 		return nil
 	}
@@ -125,9 +142,11 @@ func (c *AIRecommendationCache) SaveToCache(ctx context.Context, userID uuid.UUI
 		return nil
 	}
 	payload := CachedAIRecommendations{
-		UserID:      userID.String(),
-		GeneratedAt: time.Now().UTC(),
-		Jobs:        jobs,
+		UserID:                     userID.String(),
+		GeneratedAt:                time.Now().UTC(),
+		LastSeenJobCreatedAt:       lastSeenJobCreatedAt.UTC(),
+		LastSeenGlobalJobCreatedAt: lastSeenGlobalJobCreatedAt.UTC(),
+		Jobs:                       jobs,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {

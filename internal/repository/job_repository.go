@@ -23,6 +23,9 @@ type JobRepository interface {
 	ListJobs(ctx context.Context, limit, offset int) ([]Job, error)
 	ListJobsForListing(ctx context.Context, f JobListFilter) ([]JobListRow, error)
 	ListJobsSkillGroundedCandidates(ctx context.Context, skillPatterns []string, limit int) ([]JobListRow, error)
+	ListJobsSkillGroundedCandidatesSince(ctx context.Context, skillPatterns []string, since time.Time, limit int) ([]JobListRow, error)
+	ListJobsSkillGroundedCandidatesPage(ctx context.Context, skillPatterns []string, cursorCreatedAt time.Time, cursorID uuid.UUID, limit int) ([]JobListRow, error)
+	GetMaxJobCreatedAt(ctx context.Context) (time.Time, error)
 	ListActiveJobsWithoutSkills(ctx context.Context, limit, offset int) ([]JobForSkillExtraction, error)
 	GetLatestScrapedAt(ctx context.Context, title string, location string) (time.Time, error)
 	UpsertJobs(ctx context.Context, jobs []JobUpsert) error
@@ -136,6 +139,148 @@ func (r *PostgresJobRepository) ListJobs(ctx context.Context, limit, offset int)
 			return nil, err
 		}
 		out = append(out, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *PostgresJobRepository) ListJobsSkillGroundedCandidatesPage(ctx context.Context, skillPatterns []string, cursorCreatedAt time.Time, cursorID uuid.UUID, limit int) ([]JobListRow, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	clean := make([]string, 0, len(skillPatterns))
+	for _, p := range skillPatterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		clean = append(clean, p)
+	}
+	if len(clean) == 0 {
+		return []JobListRow{}, nil
+	}
+
+	// Keyset pagination over created_at,id (DESC) for stable full scans.
+	q := strings.Builder{}
+	q.WriteString(`SELECT j.id,
+		COALESCE(j.title, ''),
+		COALESCE(j.company, ''),
+		COALESCE(j.location, ''),
+		COALESCE(j.source, 'unknown'),
+		COALESCE(j.source_url, j.url, ''),
+		COALESCE(j.description, ''),
+		COALESCE(j.raw_description, ''),
+		j.posted_at,
+		j.created_at
+		FROM jobs j
+		WHERE j.is_active = true
+		AND (
+			j.title ILIKE ANY($1)
+			OR j.description ILIKE ANY($1)
+			OR j.raw_description ILIKE ANY($1)
+		)`)
+	args := make([]any, 0, 4)
+	args = append(args, clean)
+	argN := 2
+	if !cursorCreatedAt.IsZero() {
+		q.WriteString(` AND (j.created_at < $2 OR (j.created_at = $2 AND j.id < $3))`)
+		args = append(args, cursorCreatedAt.UTC(), cursorID)
+		argN = 4
+	}
+	q.WriteString(` ORDER BY j.created_at DESC, j.id DESC LIMIT $` + itoa(argN))
+	args = append(args, limit)
+
+	rows, err := r.db.Query(ctx, q.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]JobListRow, 0)
+	for rows.Next() {
+		var it JobListRow
+		var posted sql.NullTime
+		if err := rows.Scan(&it.ID, &it.Title, &it.Company, &it.Location, &it.Source, &it.SourceURL, &it.Description, &it.RawDescription, &posted, &it.CreatedAt); err != nil {
+			return nil, err
+		}
+		if posted.Valid {
+			t := posted.Time
+			it.PostedAt = &t
+		}
+		out = append(out, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *PostgresJobRepository) ListJobsSkillGroundedCandidatesSince(ctx context.Context, skillPatterns []string, since time.Time, limit int) ([]JobListRow, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	clean := make([]string, 0, len(skillPatterns))
+	for _, p := range skillPatterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		clean = append(clean, p)
+	}
+	if len(clean) == 0 {
+		return []JobListRow{}, nil
+	}
+
+	q := strings.Builder{}
+	q.WriteString(`SELECT j.id,
+		COALESCE(j.title, ''),
+		COALESCE(j.company, ''),
+		COALESCE(j.location, ''),
+		COALESCE(j.source, 'unknown'),
+		COALESCE(j.source_url, j.url, ''),
+		COALESCE(j.description, ''),
+		COALESCE(j.raw_description, ''),
+		j.posted_at,
+		j.created_at
+		FROM jobs j
+		WHERE j.is_active = true
+		AND j.created_at > $2
+		AND (
+			j.title ILIKE ANY($1)
+			OR j.description ILIKE ANY($1)
+			OR j.raw_description ILIKE ANY($1)
+		)
+		ORDER BY j.posted_at DESC NULLS LAST, j.created_at DESC
+		LIMIT $3`)
+
+	rows, err := r.db.Query(ctx, q.String(), clean, since.UTC(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]JobListRow, 0)
+	for rows.Next() {
+		var it JobListRow
+		var posted sql.NullTime
+		if err := rows.Scan(&it.ID, &it.Title, &it.Company, &it.Location, &it.Source, &it.SourceURL, &it.Description, &it.RawDescription, &posted, &it.CreatedAt); err != nil {
+			return nil, err
+		}
+		if posted.Valid {
+			t := posted.Time
+			it.PostedAt = &t
+		}
+		out = append(out, it)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -353,6 +498,24 @@ func (r *PostgresJobRepository) GetLatestScrapedAt(ctx context.Context, title st
 		return time.Time{}, nil
 	}
 	return latest.Time, nil
+}
+
+func (r *PostgresJobRepository) GetMaxJobCreatedAt(ctx context.Context) (time.Time, error) {
+	if r == nil || r.db == nil {
+		return time.Time{}, errors.New("nil repository/db")
+	}
+	row := r.db.QueryRow(ctx, `SELECT MAX(created_at) FROM jobs`)
+	var t sql.NullTime
+	if err := row.Scan(&t); err != nil {
+		if err == sql.ErrNoRows || errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	if !t.Valid {
+		return time.Time{}, nil
+	}
+	return t.Time, nil
 }
 
 func (r *PostgresJobRepository) UpsertJobs(ctx context.Context, jobs []JobUpsert) error {

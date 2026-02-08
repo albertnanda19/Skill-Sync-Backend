@@ -56,7 +56,10 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	userUC := usecase.NewUserUsecase(userRepo)
 	userSkillUC := usecase.NewUserSkillUsecase(userSkillRepo)
 	skillUC := usecase.NewSkillUsecase(skillRepo)
-	aiProvider := ai.NewOpenRouterClient()
+	aiProvider := ai.NewFallbackProvider(
+		ai.NewOpenRouterClient(),
+		ai.NewGroqClient(),
+	)
 	jobRecommendationUC := usecase.NewAIRecommendationUsecase(jobRepo, userSkillRepo, userRepo, aiProvider)
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
 	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, freshnessSvc, triggerCtl, redisCache, logger)

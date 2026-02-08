@@ -13,22 +13,22 @@ import (
 	"time"
 )
 
-type OpenRouterClient struct {
+type GroqClient struct {
 	apiKey  string
 	model   string
 	baseURL string
 	http    *http.Client
 }
 
-func NewOpenRouterClient() *OpenRouterClient {
-	apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
-	model := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL"))
+func NewGroqClient() *GroqClient {
+	apiKey := strings.TrimSpace(os.Getenv("GROQ_API_KEY"))
+	model := strings.TrimSpace(os.Getenv("GROQ_MODEL"))
 	if model == "" {
-		model = "openrouter/auto"
+		model = "llama-3.1-8b-instant"
 	}
-	baseURL := strings.TrimSpace(os.Getenv("OPENROUTER_BASE_URL"))
+	baseURL := strings.TrimSpace(os.Getenv("GROQ_BASE_URL"))
 	if baseURL == "" {
-		baseURL = "https://openrouter.ai/api/v1"
+		baseURL = "https://api.groq.com/openai/v1"
 	}
 
 	timeout := 10 * time.Second
@@ -38,7 +38,7 @@ func NewOpenRouterClient() *OpenRouterClient {
 		}
 	}
 
-	return &OpenRouterClient{
+	return &GroqClient{
 		apiKey:  apiKey,
 		model:   model,
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -48,9 +48,9 @@ func NewOpenRouterClient() *OpenRouterClient {
 	}
 }
 
-func (c *OpenRouterClient) Recommend(ctx context.Context, userProfile string, jobs []JobContext) ([]AIRecommendation, error) {
+func (c *GroqClient) Recommend(ctx context.Context, userProfile string, jobs []JobContext) ([]AIRecommendation, error) {
 	if c.apiKey == "" {
-		return nil, errors.New("missing OPENROUTER_API_KEY")
+		return nil, errors.New("missing GROQ_API_KEY")
 	}
 	if len(jobs) == 0 {
 		return []AIRecommendation{}, nil
@@ -69,9 +69,9 @@ func (c *OpenRouterClient) Recommend(ctx context.Context, userProfile string, jo
 	systemMsg := BuildSystemPrompt()
 	userMsg := BuildUserPrompt(userProfile, jobs, maxResults)
 
-	body := openRouterChatRequest{
+	body := groqChatRequest{
 		Model: c.model,
-		Messages: []openRouterMessage{
+		Messages: []groqMessage{
 			{Role: "system", Content: systemMsg},
 			{Role: "user", Content: userMsg},
 		},
@@ -101,21 +101,21 @@ func (c *OpenRouterClient) Recommend(ctx context.Context, userProfile string, jo
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, APIError{Provider: "openrouter", StatusCode: resp.StatusCode, Body: string(respBody)}
+		return nil, APIError{Provider: "groq", StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
-	var out openRouterChatResponse
+	var out groqChatResponse
 	if err := json.Unmarshal(respBody, &out); err != nil {
 		return nil, err
 	}
 	if len(out.Choices) == 0 {
-		return nil, errors.New("openrouter: empty choices")
+		return nil, errors.New("groq: empty choices")
 	}
 
 	content := strings.TrimSpace(out.Choices[0].Message.Content)
 	jsonPayload := extractJSONArray(content)
 	if jsonPayload == "" {
-		return nil, fmt.Errorf("openrouter: no JSON array in response: %s", content)
+		return nil, fmt.Errorf("groq: no JSON array in response: %s", content)
 	}
 
 	var recs []AIRecommendation
@@ -125,56 +125,20 @@ func (c *OpenRouterClient) Recommend(ctx context.Context, userProfile string, jo
 	return recs, nil
 }
 
-type openRouterChatRequest struct {
-	Model    string              `json:"model"`
-	Messages []openRouterMessage `json:"messages"`
+type groqChatRequest struct {
+	Model    string        `json:"model"`
+	Messages []groqMessage `json:"messages"`
 }
 
-type openRouterMessage struct {
+type groqMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-type openRouterChatResponse struct {
+type groqChatResponse struct {
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
-}
-
-func extractJSONArray(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimSuffix(s, "```")
-	s = strings.TrimSpace(s)
-
-	start := strings.Index(s, "[")
-	end := strings.LastIndex(s, "]")
-	if start == -1 || end == -1 || end < start {
-		return ""
-	}
-	return strings.TrimSpace(s[start : end+1])
-}
-
-func parsePositiveInt(raw string) (int, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0, errors.New("empty")
-	}
-	n := 0
-	for _, ch := range raw {
-		if ch < '0' || ch > '9' {
-			return 0, errors.New("not int")
-		}
-		n = n*10 + int(ch-'0')
-		if n > 86400 {
-			return n, nil
-		}
-	}
-	if n <= 0 {
-		return 0, errors.New("non-positive")
-	}
-	return n, nil
 }

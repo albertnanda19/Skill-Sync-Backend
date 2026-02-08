@@ -72,7 +72,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	pipelineUC := usecase.NewPipelineUsecase(pipelineRepo, db, redisCache)
 
 	authHandler := handler.NewAuthHandler(authUC)
-	userHandler := handler.NewUserHandler(userUC)
+	userHandler := handler.NewUserHandler(userUC, userSkillUC)
 	userSkillHandler := handler.NewUserSkillHandler(userSkillUC)
 	skillHandler := handler.NewSkillHandler(skillUC)
 	jobRecommendationHandler := handler.NewJobRecommendationHandler(jobRecommendationUC)

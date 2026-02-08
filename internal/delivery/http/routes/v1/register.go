@@ -58,6 +58,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	userSkillUC := usecase.NewUserSkillUsecase(userSkillRepo)
 	skillUC := usecase.NewSkillUsecase(skillRepo)
 	aiProvider := ai.NewFallbackProvider(
+		ai.NewGeminiClient(),
 		ai.NewOpenRouterClient(),
 		ai.NewGroqClient(),
 	)

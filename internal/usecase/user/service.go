@@ -17,18 +17,20 @@ var (
 )
 
 type UpdateProfileInput struct {
-	FullName        *string
-	ExperienceLevel *string
-	PreferredRoles  []string
+	FullName           *string
+	ExperienceLevel    *string
+	PreferenceLocation *string
+	PreferredRoles     []string
 }
 
 type Profile struct {
-	ID              uuid.UUID
-	Email           string
-	FullName        *string
-	ExperienceLevel *string
-	PreferredRoles  []string
-	CreatedAt       time.Time
+	ID                 uuid.UUID
+	Email              string
+	FullName           *string
+	ExperienceLevel    *string
+	PreferenceLocation *string
+	PreferredRoles     []string
+	CreatedAt          time.Time
 }
 
 type Service struct {
@@ -57,12 +59,13 @@ func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (Profile, er
 	}
 
 	return Profile{
-		ID:              usr.ID,
-		Email:           usr.Email,
-		FullName:        p.FullName,
-		ExperienceLevel: p.ExperienceLevel,
-		PreferredRoles:  p.PreferredRoles,
-		CreatedAt:       usr.CreatedAt,
+		ID:                 usr.ID,
+		Email:              usr.Email,
+		FullName:           p.FullName,
+		ExperienceLevel:    p.ExperienceLevel,
+		PreferenceLocation: p.PreferenceLocation,
+		PreferredRoles:     p.PreferredRoles,
+		CreatedAt:          usr.CreatedAt,
 	}, nil
 }
 
@@ -94,6 +97,12 @@ func (s *Service) UpdateProfile(ctx context.Context, userID uuid.UUID, in Update
 		v := strings.TrimSpace(*in.ExperienceLevel)
 		if v != "" {
 			existing.ExperienceLevel = &v
+		}
+	}
+	if in.PreferenceLocation != nil {
+		v := strings.TrimSpace(*in.PreferenceLocation)
+		if v != "" {
+			existing.PreferenceLocation = &v
 		}
 	}
 	if len(in.PreferredRoles) > 0 {

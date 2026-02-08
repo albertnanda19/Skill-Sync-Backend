@@ -77,6 +77,7 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 	email := ""
 	preferredRoles := make([]string, 0)
 	experienceLevel := ""
+	preferenceLocation := ""
 	if u.users != nil {
 		usr, err := u.users.GetUserByID(ctx, userID)
 		if err == nil {
@@ -87,6 +88,9 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 			preferredRoles = uniqueStrings(prof.PreferredRoles)
 			if prof.ExperienceLevel != nil {
 				experienceLevel = strings.TrimSpace(*prof.ExperienceLevel)
+			}
+			if prof.PreferenceLocation != nil {
+				preferenceLocation = strings.TrimSpace(*prof.PreferenceLocation)
 			}
 		}
 	}
@@ -131,6 +135,9 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 	if experienceLevel != "" {
 		profileBits = append(profileBits, "Experience Level: "+experienceLevel)
 	}
+	if preferenceLocation != "" {
+		profileBits = append(profileBits, "Preference Location: "+preferenceLocation)
+	}
 
 	userProfile := strings.Join(profileBits, "\n")
 	if strings.TrimSpace(userProfile) == "" {
@@ -147,7 +154,7 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 	cacheKey := ""
 	useCache := u.cache != nil && IsAICacheEnabled()
 	if useCache {
-		hash := BuildUserProfileHashWithContext(userID, skillSignals, preferredRoles, experienceLevel, skillsUpdatedAt)
+		hash := BuildUserProfileHashWithContext(userID, skillSignals, preferredRoles, experienceLevel, preferenceLocation, skillsUpdatedAt)
 		cacheKey = BuildAIRecommendationCacheKey(userID, hash)
 		if cached, lastSeen, lastSeenGlobal, generatedAt, hit := u.cache.GetFromCache(ctx, cacheKey); hit {
 			if g := AICacheRefreshGrace(); g > 0 && !generatedAt.IsZero() && time.Since(generatedAt) <= g {
@@ -228,7 +235,7 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 	backendProfile := isBackendProfile(userSkills)
 	skillMeta := buildSkillMeta(skills)
 	rolePatterns := buildRolePatterns(preferredRoles)
-	rows, scanned, err := u.scanSkillGroundedCandidates(ctx, patterns, rolePatterns, userSkills, primarySkill, backendProfile)
+	rows, scanned, err := u.scanSkillGroundedCandidates(ctx, patterns, rolePatterns, preferenceLocation, userSkills, primarySkill, backendProfile)
 	if err != nil {
 		return u.fallbackRecentJobs(ctx, skillKeywords)
 	}
@@ -248,7 +255,7 @@ func (u *AIRecommendation) GetAIRecommendations(ctx context.Context, userID uuid
 	return out, nil
 }
 
-func (u *AIRecommendation) scanSkillGroundedCandidates(ctx context.Context, patterns []string, rolePatterns []string, userSkills []string, primarySkill string, backendProfile bool) ([]repository.JobListRow, int, error) {
+func (u *AIRecommendation) scanSkillGroundedCandidates(ctx context.Context, patterns []string, rolePatterns []string, preferenceLocation string, userSkills []string, primarySkill string, backendProfile bool) ([]repository.JobListRow, int, error) {
 	if u == nil || u.jobs == nil {
 		return nil, 0, ErrInternal
 	}
@@ -314,6 +321,9 @@ func (u *AIRecommendation) scanSkillGroundedCandidates(ctx context.Context, patt
 		scanned += len(page)
 
 		for _, r := range page {
+			if preferenceLocation != "" && !matchesPreferenceLocation(r.Location, preferenceLocation) {
+				continue
+			}
 			ss, _ := structuredScoreJob(r, userSkills, nil, primarySkill, backendProfile)
 			if ss <= 0 {
 				continue
@@ -810,6 +820,31 @@ func buildSkillMeta(skills []repository.UserSkill) map[string]skillContext {
 		}
 	}
 	return out
+}
+
+func matchesPreferenceLocation(jobLocation string, preferenceLocation string) bool {
+	jl := strings.ToLower(strings.TrimSpace(jobLocation))
+	pl := strings.ToLower(strings.TrimSpace(preferenceLocation))
+	if pl == "" {
+		return true
+	}
+	if jl == "" {
+		return false
+	}
+
+	// Remote preference: accept remote/hybrid/anywhere.
+	if strings.Contains(pl, "remote") {
+		for _, kw := range []string{"remote", "hybrid", "anywhere", "work from home", "wfh"} {
+			if strings.Contains(jl, kw) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// City/region preference: simple substring containment.
+	// (kept intentionally lightweight and deterministic)
+	return strings.Contains(jl, pl)
 }
 
 func normalizeTokenText(s string) string {

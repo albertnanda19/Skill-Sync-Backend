@@ -86,17 +86,22 @@ func (r *UserRepository) ExistsByEmail(ctx context.Context, email string) (bool,
 
 func (r *UserRepository) GetProfileByUserID(ctx context.Context, userID uuid.UUID) (user.Profile, error) {
 	row := r.db.QueryRow(ctx,
-		`SELECT id, user_id, full_name, experience_level, preferred_roles, created_at, updated_at FROM user_profiles WHERE user_id = $1`,
+		`SELECT id, user_id, full_name, experience_level, preference_location, preferred_roles, created_at, updated_at FROM user_profiles WHERE user_id = $1`,
 		userID,
 	)
 
 	var p user.Profile
+	var prefLocation sql.NullString
 	var roles []string
-	if err := row.Scan(&p.ID, &p.UserID, &p.FullName, &p.ExperienceLevel, &roles, &p.CreatedAt, &p.UpdatedAt); err != nil {
+	if err := row.Scan(&p.ID, &p.UserID, &p.FullName, &p.ExperienceLevel, &prefLocation, &roles, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows || errors.Is(err, pgx.ErrNoRows) {
 			return user.Profile{}, user.ErrNotFound
 		}
 		return user.Profile{}, err
+	}
+	if prefLocation.Valid {
+		v := prefLocation.String
+		p.PreferenceLocation = &v
 	}
 	p.PreferredRoles = roles
 	return p, nil
@@ -108,14 +113,15 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, p user.Profile) erro
 	}
 
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO user_profiles (id, user_id, full_name, experience_level, preferred_roles)
-		 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO user_profiles (id, user_id, full_name, experience_level, preference_location, preferred_roles)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (user_id) DO UPDATE SET
 		  full_name = EXCLUDED.full_name,
 		  experience_level = EXCLUDED.experience_level,
+		  preference_location = EXCLUDED.preference_location,
 		  preferred_roles = EXCLUDED.preferred_roles,
 		  updated_at = now()`,
-		p.ID, *p.UserID, p.FullName, p.ExperienceLevel, p.PreferredRoles,
+		p.ID, *p.UserID, p.FullName, p.ExperienceLevel, p.PreferenceLocation, p.PreferredRoles,
 	)
 	if err != nil {
 		return err

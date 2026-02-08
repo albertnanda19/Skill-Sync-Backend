@@ -65,7 +65,7 @@ func BuildUserProfileHashWithRoles(userID uuid.UUID, skills []string, roles []st
 	return hex.EncodeToString(sum[:])
 }
 
-func BuildUserProfileHashWithContext(userID uuid.UUID, skillSignals []string, roles []string, experienceLevel string, updatedAt time.Time) string {
+func BuildUserProfileHashWithContext(userID uuid.UUID, skillSignals []string, roles []string, experienceLevel string, preferenceLocation string, updatedAt time.Time) string {
 	cleanSignals := make([]string, 0, len(skillSignals))
 	for _, s := range skillSignals {
 		s = strings.TrimSpace(s)
@@ -89,7 +89,8 @@ func BuildUserProfileHashWithContext(userID uuid.UUID, skillSignals []string, ro
 	rolesJoined := strings.Join(roleClean, ",")
 
 	experienceLevel = strings.TrimSpace(experienceLevel)
-	payload := userID.String() + "|" + signalsJoined + "|" + rolesJoined + "|" + experienceLevel + "|" + updatedAt.UTC().Format(time.RFC3339Nano)
+	preferenceLocation = strings.TrimSpace(preferenceLocation)
+	payload := userID.String() + "|" + signalsJoined + "|" + rolesJoined + "|" + experienceLevel + "|" + preferenceLocation + "|" + updatedAt.UTC().Format(time.RFC3339Nano)
 	sum := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(sum[:])
 }

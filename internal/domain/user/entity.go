@@ -15,11 +15,12 @@ type User struct {
 }
 
 type Profile struct {
-	ID              uuid.UUID
-	UserID          *uuid.UUID
-	FullName        *string
-	ExperienceLevel *string
-	PreferredRoles  []string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                 uuid.UUID
+	UserID             *uuid.UUID
+	FullName           *string
+	ExperienceLevel    *string
+	PreferenceLocation *string
+	PreferredRoles     []string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }

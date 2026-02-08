@@ -19,9 +19,10 @@ type UserHandler struct {
 }
 
 type updateProfileRequest struct {
-	FullName        *string  `json:"full_name"`
-	ExperienceLevel *string  `json:"experience_level"`
-	PreferredRoles  []string `json:"preferred_roles"`
+	FullName           *string  `json:"full_name"`
+	ExperienceLevel    *string  `json:"experience_level"`
+	PreferenceLocation *string  `json:"preference_location"`
+	PreferredRoles     []string `json:"preferred_roles"`
 }
 
 func NewUserHandler(uc usecase.UserUsecase) *UserHandler {
@@ -52,12 +53,13 @@ func (h *UserHandler) GetMe(c fiber.Ctx) error {
 	}
 
 	res := dto.UserProfileResponse{
-		ID:              prof.ID,
-		Email:           prof.Email,
-		FullName:        prof.FullName,
-		ExperienceLevel: prof.ExperienceLevel,
-		PreferredRoles:  prof.PreferredRoles,
-		CreatedAt:       prof.CreatedAt,
+		ID:                 prof.ID,
+		Email:              prof.Email,
+		FullName:           prof.FullName,
+		ExperienceLevel:    prof.ExperienceLevel,
+		PreferenceLocation: prof.PreferenceLocation,
+		PreferredRoles:     prof.PreferredRoles,
+		CreatedAt:          prof.CreatedAt,
 	}
 	return response.Success(c, fiber.StatusOK, response.MessageOK, res)
 }
@@ -72,14 +74,15 @@ func (h *UserHandler) UpdateMe(c fiber.Ctx) error {
 	if err := c.Bind().Body(&req); err != nil {
 		return middleware.NewAppError(fiber.StatusBadRequest, "Invalid request payload", nil, err)
 	}
-	if req.FullName == nil && req.ExperienceLevel == nil && len(req.PreferredRoles) == 0 {
+	if req.FullName == nil && req.ExperienceLevel == nil && req.PreferenceLocation == nil && len(req.PreferredRoles) == 0 {
 		return middleware.NewAppError(fiber.StatusBadRequest, "Invalid request payload", nil, nil)
 	}
 
 	prof, err := h.uc.UpdateProfile(c.Context(), userID, useruc.UpdateProfileInput{
-		FullName:        req.FullName,
-		ExperienceLevel: req.ExperienceLevel,
-		PreferredRoles:  req.PreferredRoles,
+		FullName:           req.FullName,
+		ExperienceLevel:    req.ExperienceLevel,
+		PreferenceLocation: req.PreferenceLocation,
+		PreferredRoles:     req.PreferredRoles,
 	})
 	if err != nil {
 		if errors.Is(err, useruc.ErrInvalidInput) {
@@ -92,12 +95,13 @@ func (h *UserHandler) UpdateMe(c fiber.Ctx) error {
 	}
 
 	res := dto.UserProfileResponse{
-		ID:              prof.ID,
-		Email:           prof.Email,
-		FullName:        prof.FullName,
-		ExperienceLevel: prof.ExperienceLevel,
-		PreferredRoles:  prof.PreferredRoles,
-		CreatedAt:       prof.CreatedAt,
+		ID:                 prof.ID,
+		Email:              prof.Email,
+		FullName:           prof.FullName,
+		ExperienceLevel:    prof.ExperienceLevel,
+		PreferenceLocation: prof.PreferenceLocation,
+		PreferredRoles:     prof.PreferredRoles,
+		CreatedAt:          prof.CreatedAt,
 	}
 	return response.Success(c, fiber.StatusOK, response.MessageOK, res)
 }

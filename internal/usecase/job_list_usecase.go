@@ -18,6 +18,7 @@ type JobListParams struct {
 	CompanyName string
 	Location    string
 	Skills      []string
+	SourceIDs   []uuid.UUID
 	Limit       int
 	Offset      int
 }
@@ -166,6 +167,7 @@ func (u *JobList) ListJobs(ctx context.Context, params JobListParams) ([]JobList
 		CompanyName:   params.CompanyName,
 		Location:      params.Location,
 		Skills:        skills,
+		SourceIDs:     params.SourceIDs,
 		Limit:         limit,
 		Offset:        offset,
 	}

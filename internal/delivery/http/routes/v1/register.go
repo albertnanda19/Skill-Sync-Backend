@@ -42,6 +42,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	userRepo := postgres.NewUserRepository(db)
 	userSkillRepo := repository.NewPostgresUserSkillRepository(db)
 	jobRepo := repository.NewPostgresJobRepository(db)
+	jobSourceRepo := repository.NewPostgresJobSourceRepository(db)
 	jobSkillRepo := repository.NewPostgresJobSkillRepository(db)
 	jobSkillV2Repo := repository.NewPostgresJobSkillV2Repository(db)
 	pipelineStatusRepo := repository.NewPostgresPipelineStatusRepository(db)
@@ -68,6 +69,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	userSkillUC := usecase.NewUserSkillWithRecommendationRefresh(userSkillUCBase, jobRecommendationUC, aiRecoCache)
 	matchingV2UC := usecase.NewMatchingUsecaseV2(jobRepo, jobSkillV2Repo, userSkillRepo)
 	jobListUC := usecase.NewJobListUsecase(jobRepo, jobSkillRepo, freshnessSvc, triggerCtl, redisCache, logger)
+	jobSourceUC := usecase.NewJobSourceUsecase(jobSourceRepo)
 	pipelineStatusUC := usecase.NewPipelineStatusUsecase(pipelineStatusRepo, nil)
 	pipelineUC := usecase.NewPipelineUsecase(pipelineRepo, db, redisCache)
 
@@ -78,6 +80,7 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	jobRecommendationHandler := handler.NewJobRecommendationHandler(jobRecommendationUC)
 	matchV2Handler := handler.NewMatchV2Handler(matchingV2UC)
 	jobsHandler := handler.NewJobsHandler(jobListUC)
+	jobSourceHandler := handler.NewJobSourceHandler(jobSourceUC)
 	pipelineStatusHandler := handler.NewPipelineStatusHandler(pipelineStatusUC, nil)
 	pipelineHandler := handler.NewPipelineHandler(pipelineUC)
 
@@ -90,8 +93,10 @@ func Register(r fiber.Router, cfg config.Config, db database.DB) {
 	publicJobs := strings.EqualFold(strings.TrimSpace(os.Getenv("PUBLIC_JOBS")), "true")
 	if publicJobs {
 		r.Get("/jobs", jobsHandler.HandleListJobs)
+		jobSourceHandler.RegisterRoutes(r)
 	} else {
 		protected.Get("/jobs", jobsHandler.HandleListJobs)
+		jobSourceHandler.RegisterRoutes(protected)
 	}
 
 	usersGroup := protected.Group("/users")

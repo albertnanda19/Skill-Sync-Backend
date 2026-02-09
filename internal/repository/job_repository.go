@@ -70,6 +70,7 @@ type JobListFilter struct {
 	CompanyName   string
 	Location      string
 	Skills        []string
+	SourceIDs     []uuid.UUID
 	Limit         int
 	Offset        int
 }
@@ -690,6 +691,20 @@ func (r *PostgresJobRepository) ListJobsForListing(ctx context.Context, f JobLis
 			base.WriteString("WHERE js.job_id = j.id AND s.name ILIKE ANY($" + itoa(argN) + ")")
 			base.WriteString(")")
 			args = append(args, patterns)
+			argN++
+		}
+	}
+	if len(f.SourceIDs) > 0 {
+		clean := make([]uuid.UUID, 0, len(f.SourceIDs))
+		for _, id := range f.SourceIDs {
+			if id == uuid.Nil {
+				continue
+			}
+			clean = append(clean, id)
+		}
+		if len(clean) > 0 {
+			base.WriteString(" AND j.source_id = ANY($" + itoa(argN) + ")")
+			args = append(args, clean)
 			argN++
 		}
 	}

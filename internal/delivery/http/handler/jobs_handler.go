@@ -14,6 +14,7 @@ import (
 	"skill-sync/internal/usecase"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 )
 
 type JobsHandler struct {
@@ -29,6 +30,10 @@ func (h *JobsHandler) HandleListJobs(c fiber.Ctx) error {
 	companyName := c.Query("company_name")
 	location := c.Query("location")
 	skills := parseSkillsQuery(c.Query("skills"))
+	sourceIDs, err := parseSourceIDsQuery(c.Query("source_id"))
+	if err != nil {
+		return middleware.NewAppError(fiber.StatusBadRequest, "Bad request", nil, err)
+	}
 
 	limit, err := parseQueryIntStrict(c, "limit", 20)
 	if err != nil {
@@ -44,6 +49,7 @@ func (h *JobsHandler) HandleListJobs(c fiber.Ctx) error {
 		CompanyName: companyName,
 		Location:    location,
 		Skills:      skills,
+		SourceIDs:   sourceIDs,
 		Limit:       limit,
 		Offset:      offset,
 	})
@@ -301,6 +307,27 @@ func parseSkillsQuery(s string) []string {
 		out = append(out, p)
 	}
 	return out
+}
+
+func parseSourceIDsQuery(s string) ([]uuid.UUID, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]uuid.UUID, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		id, err := uuid.Parse(p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, nil
 }
 
 func mapJobListUsecaseError(err error) error {

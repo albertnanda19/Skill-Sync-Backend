@@ -101,7 +101,7 @@ func (h *JobRecommendationHandler) GetRecommendations(c fiber.Ctx) error {
 		Jobs:                 out,
 	}
 	if len(out) == 0 {
-		env.Message = "No jobs found matching your core skills"
+		env.Message = "No jobs found matching your skills"
 	}
 
 	return response.Success(c, fiber.StatusOK, response.MessageOK, env)

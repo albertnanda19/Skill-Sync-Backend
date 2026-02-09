@@ -9,6 +9,7 @@ import (
 
 	"skill-sync/internal/config"
 	"skill-sync/internal/delivery/http/middleware"
+	"skill-sync/internal/repository"
 	"skill-sync/internal/ws"
 
 	"github.com/gofiber/fiber/v3"
@@ -23,6 +24,7 @@ type ScrapeCompletedRequest struct {
 
 type scrapeCacheInvalidator interface {
 	InvalidateCacheByKeyword(ctx context.Context, keyword string) error
+	GetString(ctx context.Context, key string) (string, bool, error)
 	SetString(ctx context.Context, key string, value string, ttl time.Duration) error
 	Delete(ctx context.Context, key string) error
 	Publish(ctx context.Context, channel string, payload string) error
@@ -31,11 +33,12 @@ type scrapeCacheInvalidator interface {
 type ScrapeCompletedHandler struct {
 	cfg    config.Config
 	cache  scrapeCacheInvalidator
+	jobs   repository.JobRepository
 	logger *log.Logger
 }
 
-func NewScrapeCompletedHandler(cfg config.Config, cache scrapeCacheInvalidator, logger *log.Logger) *ScrapeCompletedHandler {
-	return &ScrapeCompletedHandler{cfg: cfg, cache: cache, logger: logger}
+func NewScrapeCompletedHandler(cfg config.Config, cache scrapeCacheInvalidator, jobs repository.JobRepository, logger *log.Logger) *ScrapeCompletedHandler {
+	return &ScrapeCompletedHandler{cfg: cfg, cache: cache, jobs: jobs, logger: logger}
 }
 
 func (h *ScrapeCompletedHandler) HandleScrapeCompleted(c fiber.Ctx) error {
@@ -92,9 +95,40 @@ func (h *ScrapeCompletedHandler) HandleScrapeCompleted(c fiber.Ctx) error {
 		h.logger.Printf("Cache invalidated | keyword=%s", req.Keyword)
 	}
 
-	ws.NotifyJobsUpdated(req.Keyword, req.Source)
-	if h.logger != nil {
-		h.logger.Printf("WS notify | type=jobs_updated keyword=%s source=%s", req.Keyword, req.Source)
+	maxCreatedAt := time.Time{}
+	if h.jobs != nil {
+		if t, err := h.jobs.GetMaxJobCreatedAt(c.Context()); err == nil {
+			maxCreatedAt = t
+		}
+	}
+
+	kwKey := strings.ToLower(strings.Join(strings.Fields(req.Keyword), " "))
+	srcKey := strings.ToLower(strings.Join(strings.Fields(req.Source), " "))
+	markerKey := "ws:jobs_updated:last_max_created_at:" + kwKey + ":" + srcKey
+	marker := ""
+	if !maxCreatedAt.IsZero() {
+		marker = maxCreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+
+	shouldNotify := true
+	if h.cache != nil && marker != "" {
+		prev, ok, err := h.cache.GetString(context.Background(), markerKey)
+		if err == nil && ok && strings.TrimSpace(prev) == marker {
+			shouldNotify = false
+		}
+	}
+
+	if shouldNotify {
+		if h.cache != nil && marker != "" {
+			_ = h.cache.SetString(context.Background(), markerKey, marker, 24*time.Hour)
+		}
+		v := true
+		ws.NotifyJobsUpdatedWithState(req.Keyword, req.Source, &v, maxCreatedAt)
+		if h.logger != nil {
+			h.logger.Printf("WS notify | type=jobs_updated keyword=%s source=%s has_new_data=true", req.Keyword, req.Source)
+		}
+	} else if h.logger != nil {
+		h.logger.Printf("WS notify skipped | type=jobs_updated keyword=%s source=%s has_new_data=false", req.Keyword, req.Source)
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{

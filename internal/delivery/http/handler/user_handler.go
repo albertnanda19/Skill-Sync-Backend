@@ -107,7 +107,7 @@ func (h *UserHandler) Onboarding(c fiber.Ctx) error {
 	core := make([]dto.UserMeSkillItem, 0)
 	developing := make([]dto.UserMeSkillItem, 0)
 	for _, it := range items {
-		if it.ProficiencyLevel >= 4 || it.YearsExperience >= 3 {
+		if it.ProficiencyLevel >= 3 || it.YearsExperience >= 2 {
 			core = append(core, it)
 			continue
 		}
@@ -198,7 +198,7 @@ func (h *UserHandler) GetMe(c fiber.Ctx) error {
 	core := make([]dto.UserMeSkillItem, 0)
 	developing := make([]dto.UserMeSkillItem, 0)
 	for _, it := range items {
-		if it.ProficiencyLevel >= 4 || it.YearsExperience >= 3 {
+		if it.ProficiencyLevel >= 3 || it.YearsExperience >= 2 {
 			core = append(core, it)
 			continue
 		}

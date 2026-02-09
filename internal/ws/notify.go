@@ -8,10 +8,12 @@ import (
 )
 
 type JobsUpdatedEvent struct {
-	Type      string `json:"type"`
-	Keyword   string `json:"keyword"`
-	Source    string `json:"source"`
-	Timestamp string `json:"timestamp"`
+	Type            string `json:"type"`
+	Keyword         string `json:"keyword"`
+	Source          string `json:"source"`
+	Timestamp       string `json:"timestamp"`
+	HasNewData      *bool  `json:"has_new_data,omitempty"`
+	MaxJobCreatedAt string `json:"max_job_created_at,omitempty"`
 }
 
 var defaultHub atomic.Pointer[Hub]
@@ -36,6 +38,10 @@ func getOnZeroClients() func(keyword string) {
 }
 
 func NotifyJobsUpdated(keyword string, source string) {
+	NotifyJobsUpdatedWithState(keyword, source, nil, time.Time{})
+}
+
+func NotifyJobsUpdatedWithState(keyword string, source string, hasNewData *bool, maxJobCreatedAt time.Time) {
 	h := defaultHub.Load()
 	if h == nil {
 		return
@@ -47,10 +53,14 @@ func NotifyJobsUpdated(keyword string, source string) {
 	}
 
 	evt := JobsUpdatedEvent{
-		Type:      "jobs_updated",
-		Keyword:   keyword,
-		Source:    source,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Type:       "jobs_updated",
+		Keyword:    keyword,
+		Source:     source,
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		HasNewData: hasNewData,
+	}
+	if !maxJobCreatedAt.IsZero() {
+		evt.MaxJobCreatedAt = maxJobCreatedAt.UTC().Format(time.RFC3339Nano)
 	}
 	b, err := json.Marshal(evt)
 	if err != nil {

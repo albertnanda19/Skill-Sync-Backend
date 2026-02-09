@@ -7,6 +7,7 @@ import (
 	"skill-sync/internal/database"
 	"skill-sync/internal/delivery/http/handler"
 	"skill-sync/internal/infrastructure/cache"
+	"skill-sync/internal/repository"
 	searchctl "skill-sync/internal/search/controller"
 	"skill-sync/internal/ws"
 	"strings"
@@ -95,7 +96,8 @@ func (r *Registry) registerAPI(app *fiber.App) {
 func (r *Registry) registerInternal(app *fiber.App) {
 	logger := log.Default()
 	redisCache := cache.NewRedis(logger)
-	internalHandler := handler.NewScrapeCompletedHandler(r.cfg, redisCache, logger)
+	jobRepo := repository.NewPostgresJobRepository(r.db)
+	internalHandler := handler.NewScrapeCompletedHandler(r.cfg, redisCache, jobRepo, logger)
 
 	internal := app.Group("/internal")
 	internal.Post("/scrape-completed", internalHandler.HandleScrapeCompleted)
